@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, TextInput, TouchableOpacity, Text, Alert, Image } from 'react-native';
-import { Link } from 'expo-router';
+import { Link, Redirect } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { COLORS, SIZES, FONTS } from '@/constants/theme';
 import { ThemedView } from '@/components/ThemedView';
@@ -11,6 +11,12 @@ export default function SignIn() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const { signin } = useAuth();
+  const { session } = useAuth();
+  
+  // If already logged in, redirect to main app
+  if (session) {
+    return <Redirect href="/(auth)" />;
+  }
 
   const handleSignIn = async () => {
     if (!email || !password) {

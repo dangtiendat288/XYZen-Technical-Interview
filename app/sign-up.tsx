@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, TextInput, TouchableOpacity, Text, Alert, Image } from 'react-native';
-import { Link, router } from 'expo-router';
+import { Link, router, Redirect } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { COLORS, SIZES, FONTS } from '@/constants/theme';
 import { ThemedView } from '@/components/ThemedView';
@@ -12,6 +12,12 @@ export default function SignUp() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const { signup } = useAuth();
+  const { session } = useAuth();
+  
+  // If already logged in, redirect to main app
+  if (session) {
+    return <Redirect href="/(auth)" />;
+  }
 
   const handleSignUp = async () => {
     if (!email || !password) {
@@ -27,7 +33,6 @@ export default function SignUp() {
     setLoading(true);
     try {
       await signup(email, password);
-      router.replace('/');
     } catch (error) {
       const errorMessage = (error as Error).message;
       Alert.alert('Sign up failed', errorMessage);
