@@ -1,6 +1,11 @@
 import {useContext, createContext, useState} from 'react';
 
-const AuthContext = createContext()
+const AuthContext = createContext({
+  session: false,
+  user: null,
+  signin: async () => {},
+  signout: async () => {}
+})
 
 const AuthProvider = ({children}) => {
     const [loading, setLoading] = useState(true);
