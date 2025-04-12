@@ -1,0 +1,22 @@
+The Challenge:
+
+Spotify is exploring a new mobile feature that combines the viral, short-form nature of TikTok and Instagram Reels with the personalization and musical identity of Spotify artist profiles. Your task is to prototype a music discovery and content-sharing mobile app that reimagines how artists and music creators share new content and build fan engagement.
+
+In this concept, artists and users can upload short-form, audio-visual snippets — think unreleased track previews, beat drops, lyric tests, or behind-the-scenes studio moments. These clips appear in a vertically scrolling, immersive feed designed for effortless exploration and engagement. Beyond just viewing clips, users can interact by liking, commenting, or sharing, creating a dynamic and social music discovery experience.
+
+Each user should have a profile page — but not just for displaying their clips. Imagine this page as a mini Spotify artist profile, where users can group their content into “albums” or themed collections. For example, an up-and-coming artist might have an album for Previews from My Upcoming EP, a collection called Studio Freestyles, and a set of Fan Collab Duets. These public collections should give fans a way to explore a creator’s evolving musical identity — not just one-off clips. Think of it as an interactive, short-form extension of what a Spotify artist profile could become.
+
+You’ll be responsible for building both the frontend and backend of this application. You’re free to use any tools or frameworks you’re most comfortable with — ideally something like React Native or Swift for the mobile frontend and Python or Java for the backend.
+
+While there’s no strict minimum requirement, we encourage you to build out as much functionality as possible within the 72-hour window. At the very least, your submission should feature a polished, sleek UI with a vertically scrolling content feed, the ability to upload and view audio-visual posts, post interactions like likes and comments, and a functional backend.
+
+The more complete, clean, and creative your app is, the stronger your submission will be. You now have exactly 72 hours from the time this email was sent — your submission is due by Monday, April 14th at 12:00 PM PST.
+
+----------
+
+Before the deadline, please reply to this email with:
+• A link to your PUBLIC GitHub repository
+• A 2-3 minute demo video PUBLISHED ON YOUTUBE showing and explaining how your app works
+• Any ADDITIONAL notes or documentation you’d like to include
+
+This project is intended to simulate a real-world product sprint, so please prioritize building something that works over polishing every last detail. We know this is a time-boxed challenge, and we’re excited to see what you create under pressure. Please let us know if you have any questions.
