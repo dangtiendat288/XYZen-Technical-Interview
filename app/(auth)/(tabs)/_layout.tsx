@@ -18,25 +18,32 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: colorScheme === 'dark' ? '#fff' : '#007AFF',
-        tabBarStyle: {
-          height: 60,
-        },
-        headerShown: false,
+      tabBarActiveTintColor: colorScheme === 'dark' ? '#fff' : '#007AFF',
+      tabBarStyle: {
+        height: 60,
+      },
+      headerShown: false,
       }}>
       <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <TabBarIcon name="home" color={color} />,
-        }}
+      name="index"
+      options={{
+        title: 'Home',
+        tabBarIcon: ({ color }) => <TabBarIcon name="home" color={color} />,
+      }}
       />      
       <Tabs.Screen
-        name="profile"
-        options={{
-          title: 'Profile',
-          tabBarIcon: ({ color }) => <TabBarIcon name="user" color={color} />,
-        }}
+      name="upload"
+      options={{
+        title: 'Upload',
+        tabBarIcon: ({ color }) => <TabBarIcon name="upload" color={color} />,
+      }}
+      />
+      <Tabs.Screen
+      name="profile"
+      options={{
+        title: 'Profile',
+        tabBarIcon: ({ color }) => <TabBarIcon name="user" color={color} />,
+      }}
       />
     </Tabs>
   );
