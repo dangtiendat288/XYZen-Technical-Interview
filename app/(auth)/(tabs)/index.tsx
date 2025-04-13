@@ -1,5 +1,5 @@
-import React, { useState, useRef, useCallback } from 'react';
-import { StyleSheet, View, Dimensions, Image, Animated, TouchableOpacity, ViewToken, ListRenderItemInfo } from 'react-native';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { StyleSheet, View, Dimensions, Animated, TouchableOpacity, ViewToken, ListRenderItemInfo, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { ThemedView } from '@/components/ThemedView';
@@ -12,6 +12,10 @@ import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import VideoPlayer from '@/components/VideoPlayer';
 import { Video, AVPlaybackStatus } from 'expo-av';
 
+// Firebase imports
+import { collection, query, where, orderBy, limit, getDocs, onSnapshot } from 'firebase/firestore';
+import { db } from '@/firebase/config';
+
 // Get device dimensions for full-screen experience
 const { width, height } = Dimensions.get('window');
 
@@ -22,14 +26,14 @@ interface FeedItem {
   username: string;
   title: string;
   description: string;
-  songTitle: string;
+  songTitle?: string;
   likes: number;
   comments: number;
   shares: number;
   videoUri: string;
   thumbnail: string;
   isVerified: boolean;
-  isFollowing: boolean;
+  isFollowing?: boolean;
 }
 
 interface AnimationMap {
@@ -41,80 +45,127 @@ interface ViewableItemsChangedInfo {
   changed: ViewToken[];
 }
 
-// Mock data for the feed
-const MOCK_FEED_DATA: FeedItem[] = [
-  {
-    id: '1',
-    artist: 'Adele',
-    username: '@adele',
-    title: 'New album preview',
-    description: 'Sneak peek at my upcoming album. What do you think?',
-    songTitle: 'Echoes of Tomorrow',
-    likes: 1.2, // in millions
-    comments: 45.3, // in thousands
-    shares: 12.4, // in thousands
-    videoUri: 'https://example.com/video1.mp4',
-    thumbnail: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f',
-    isVerified: true,
-    isFollowing: true,
-  },
-  {
-    id: '2',
-    artist: 'The Weeknd',
-    username: '@theweeknd',
-    title: 'Studio session',
-    description: 'Late night vibes while working on something special',
-    songTitle: 'Midnight Confessions',
-    likes: 890, // in thousands
-    comments: 32.1, // in thousands
-    shares: 15.7, // in thousands
-    videoUri: 'https://example.com/video2.mp4',
-    thumbnail: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819',
-    isVerified: true,
-    isFollowing: false,
-  },
-  {
-    id: '3',
-    artist: 'Billie Eilish',
-    username: '@billieeilish',
-    title: 'Unreleased track',
-    description: 'Trying something new. Thoughts?',
-    songTitle: 'Whispers in the Dark',
-    likes: 2.4, // in millions
-    comments: 78.5, // in thousands
-    shares: 45.1, // in thousands
-    videoUri: 'https://example.com/video3.mp4',
-    thumbnail: 'https://images.unsplash.com/photo-1516280440614-37939bbacd81',
-    isVerified: true,
-    isFollowing: true,
-  },
-];
+// Default empty state for feed
+const EMPTY_FEED: FeedItem[] = [];
+
+// Define admin UID directly for more efficient querying
+const ADMIN_UID = 'dPBw1hnBrEM4MKiALDaix1hk5E83';
 
 export default function FeedScreen(): React.ReactElement {
   const { user } = useAuth();
   const router = useRouter();
+  const [feedData, setFeedData] = useState<FeedItem[]>(EMPTY_FEED);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
   const flatListRef = useRef<Animated.FlatList<FeedItem>>(null);
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const scrollY = useRef(new Animated.Value(0)).current;
   const videoRefs = useRef<{[key: string]: Video | null}>({}).current;
-  const [playingVideos, setPlayingVideos] = useState<{[key: string]: boolean}>(
-    MOCK_FEED_DATA.reduce((acc, item) => {
-      acc[item.id] = false;
-      return acc;
-    }, {} as {[key: string]: boolean})
-  );
+  const [playingVideos, setPlayingVideos] = useState<{[key: string]: boolean}>({});
+  // Add reference to store the unsubscribe function
+  const unsubscribeRef = useRef<(() => void) | null>(null);
   
   // Get safe area insets and tab bar height
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   
   // Create a map of like animations for each item
-  const likeAnimations = useRef<AnimationMap>(
-    MOCK_FEED_DATA.reduce((acc: AnimationMap, item) => {
-      acc[item.id] = new Animated.Value(1);
-      return acc;
-    }, {})
-  ).current;
+  const likeAnimations = useRef<AnimationMap>({}).current;
+
+  // Fetch admin posts from Firestore
+  useEffect(() => {
+    const fetchAdminPosts = async () => {
+      if (!user) return;
+      
+      setLoading(true);
+      setError(null);
+      
+      try {
+        // Use the admin UID directly instead of querying for it
+        const postsRef = collection(db, 'posts');
+        const postsQuery = query(
+          postsRef,
+          where('userId', '==', ADMIN_UID),
+          orderBy('timestamp', 'desc'),
+          limit(10)
+        );
+        
+        // Set up a real-time listener for posts
+        const unsubscribeListener = onSnapshot(postsQuery, 
+          (postsSnapshot) => {
+            if (postsSnapshot.empty) {
+              setFeedData(EMPTY_FEED);
+              setLoading(false);
+              return;
+            }
+            
+            // Transform the post data to match our FeedItem interface
+            const posts = postsSnapshot.docs.map(doc => {
+              const data = doc.data();
+              return {
+                id: doc.id,
+                artist: data.title || 'Unknown Artist',
+                username: `@${data.username || 'admin'}`,
+                title: data.title || 'Untitled',
+                description: data.description || '',
+                likes: data.likes || 0,
+                comments: data.comments || 0,
+                shares: data.shares || 0,
+                videoUri: data.mediaUrl || '',
+                thumbnail: data.thumbnailUrl || 'https://via.placeholder.com/640x360/000000/FFFFFF?text=Video',
+                isVerified: true,
+                isFollowing: false
+              };
+            });
+            
+            setFeedData(posts);
+            
+            // Initialize animation and playback state for each item
+            const newLikeAnimations: AnimationMap = {};
+            const newPlayingVideos: {[key: string]: boolean} = {};
+            
+            posts.forEach(post => {
+              newLikeAnimations[post.id] = new Animated.Value(1);
+              newPlayingVideos[post.id] = false;
+            });
+            
+            // Play the first video if there are any posts
+            if (posts.length > 0) {
+              newPlayingVideos[posts[0].id] = true;
+            }
+            
+            // Update the animation and playback references
+            Object.assign(likeAnimations, newLikeAnimations);
+            setPlayingVideos(newPlayingVideos);
+            
+            setLoading(false);
+          },
+          (error) => {
+            console.error('Error fetching admin posts:', error);
+            setError('Failed to load feed. Please try again.');
+            setLoading(false);
+          }
+        );
+        
+        // Store the unsubscribe function in the ref
+        unsubscribeRef.current = unsubscribeListener;
+      } catch (err) {
+        console.error('Error setting up posts listener:', err);
+        setError('Failed to load feed. Please try again.');
+        setLoading(false);
+      }
+    };
+    
+    // Call the function without storing its return value
+    fetchAdminPosts();
+    
+    // Clean up the listener when component unmounts
+    return () => {
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+      }
+    };
+  }, [user]);
 
   // Handle scroll events to determine active video
   const handleScroll = Animated.event(
@@ -224,6 +275,42 @@ export default function FeedScreen(): React.ReactElement {
     );
   }, [activeIndex, likeAnimations, playingVideos, tabBarHeight, videoRefs]);
 
+  // If loading, show loading indicator
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <ThemedText style={styles.loadingText}>Loading videos...</ThemedText>
+      </View>
+    );
+  }
+
+  // If error, show error message
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <Ionicons name="alert-circle-outline" size={48} color={COLORS.primary} />
+        <ThemedText style={styles.errorText}>{error}</ThemedText>
+        <TouchableOpacity 
+          style={styles.retryButton}
+          onPress={() => setFeedData(EMPTY_FEED)}
+        >
+          <ThemedText style={styles.retryText}>Retry</ThemedText>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // If no posts found, show empty state
+  if (feedData.length === 0) {
+    return (
+      <View style={styles.emptyContainer}>
+        <Ionicons name="videocam-outline" size={48} color={COLORS.primary} />
+        <ThemedText style={styles.emptyText}>No videos found</ThemedText>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {/* Header overlay with gradient */}
@@ -242,7 +329,7 @@ export default function FeedScreen(): React.ReactElement {
       {/* Main feed content */}
       <Animated.FlatList
         ref={flatListRef}
-        data={MOCK_FEED_DATA}
+        data={feedData}
         renderItem={renderVideoCard}
         keyExtractor={(item: FeedItem) => item.id}
         pagingEnabled
@@ -298,5 +385,51 @@ const styles = StyleSheet.create({
   },
   feedList: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: COLORS.white,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000',
+    padding: 20,
+  },
+  errorText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: COLORS.white,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: COLORS.primary,
+    borderRadius: 20,
+  },
+  retryText: {
+    color: COLORS.white,
+    fontWeight: '600',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000',
+  },
+  emptyText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: COLORS.white,
   },
 });
