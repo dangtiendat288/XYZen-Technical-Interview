@@ -7,6 +7,7 @@ import { ThemedView } from '@/components/ThemedView';
 import { ThemedText } from '@/components/ThemedText';
 
 export default function SignUp() {
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -20,8 +21,8 @@ export default function SignUp() {
   }
 
   const handleSignUp = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please enter email and password');
+    if (!name || !email || !password) {
+      Alert.alert('Error', 'Please enter name, email, and password');
       return;
     }
     
@@ -32,7 +33,7 @@ export default function SignUp() {
     
     setLoading(true);
     try {
-      await signup(email, password);
+      await signup(email, password, name);
     } catch (error) {
       const errorMessage = (error as Error).message;
       Alert.alert('Sign up failed', errorMessage);
@@ -54,6 +55,15 @@ export default function SignUp() {
       </View>
 
       <View style={styles.inputContainer}>
+        <TextInput
+          style={styles.input}
+          placeholder="Name"
+          placeholderTextColor={COLORS.gray}
+          value={name}
+          onChangeText={setName}
+          autoCapitalize="words"
+        />
+
         <TextInput
           style={styles.input}
           placeholder="Email"
