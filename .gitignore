@@ -41,3 +41,4 @@ app-example
 # Scripts with credentials
 scripts/upload-videos.js
 upload-videos.js
+scripts/README.md
