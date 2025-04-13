@@ -19,31 +19,10 @@ import { COLORS } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import CommentItem from './CommentItem';
 
-// Firebase imports
-import { 
-  collection, 
-  addDoc, 
-  query, 
-  where, 
-  orderBy, 
-  onSnapshot, 
-  serverTimestamp,
-  doc,
-  updateDoc,
-  increment
-} from 'firebase/firestore';
-import { db } from '@/firebase/config';
+// Import the comment service
+import { Comment, addComment, getCommentsWithRealTimeUpdates, toggleCommentLike } from '@/services/commentService';
 
 const { width, height } = Dimensions.get('window');
-
-interface Comment {
-  id: string;
-  text: string;
-  username: string;
-  userPhotoURL?: string;
-  timestamp: Date;
-  likes: number;
-}
 
 interface CommentModalProps {
   visible: boolean;
@@ -98,35 +77,10 @@ const CommentModal: React.FC<CommentModalProps> = ({
     if (visible && videoId) {
       setLoading(true);
       
-      const commentsRef = collection(db, 'comments');
-      const commentsQuery = query(
-        commentsRef,
-        where('videoId', '==', videoId),
-        orderBy('timestamp', 'desc')
-      );
-      
-      commentsUnsubscribe = onSnapshot(commentsQuery, 
-        (snapshot) => {
-          const commentsList = snapshot.docs.map(doc => {
-            const data = doc.data();
-            return {
-              id: doc.id,
-              text: data.text || '',
-              username: data.username || 'anonymous',
-              userPhotoURL: data.userPhotoURL || '',
-              timestamp: data.timestamp?.toDate() || new Date(),
-              likes: data.likes || 0
-            };
-          });
-          
-          setComments(commentsList);
-          setLoading(false);
-        },
-        (error) => {
-          console.error('Error fetching comments:', error);
-          setLoading(false);
-        }
-      );
+      commentsUnsubscribe = getCommentsWithRealTimeUpdates(videoId, (commentsList) => {
+        setComments(commentsList);
+        setLoading(false);
+      });
       
       // Slide up animation when modal opens
       Animated.spring(slideAnim, {
@@ -154,37 +108,18 @@ const CommentModal: React.FC<CommentModalProps> = ({
   const handlePostComment = async () => {
     if (!user || !newComment.trim() || posting) return;
     
-    try {
-      setPosting(true);
-      Keyboard.dismiss();
-      
-      const username = userProfile?.username || user.email?.split('@')[0] || 'anonymous';
-      
-      // Add the comment to Firestore
-      await addDoc(collection(db, 'comments'), {
-        videoId,
-        text: newComment.trim(),
-        userId: user.uid,
-        username,
-        userPhotoURL: userProfile?.photoURL || '',
-        timestamp: serverTimestamp(),
-        likes: 0
-      });
-      
-      // Update comment count on the video document
-      const videoRef = doc(db, 'posts', videoId);
-      await updateDoc(videoRef, {
-        comments: increment(1)
-      });
-      
+    setPosting(true);
+    Keyboard.dismiss();
+    
+    const result = await addComment(videoId, newComment.trim(), userProfile);
+    
+    if (result.success) {
       // Update local state for UI
       onCommentCountChange(commentCount + 1);
       setNewComment('');
-      setPosting(false);
-    } catch (error) {
-      console.error('Error posting comment:', error);
-      setPosting(false);
     }
+    
+    setPosting(false);
   };
 
   const handleLikeComment = async (commentId: string) => {
@@ -195,11 +130,16 @@ const CommentModal: React.FC<CommentModalProps> = ({
     }));
     
     try {
-      // Update like count in Firestore
-      const commentRef = doc(db, 'comments', commentId);
-      await updateDoc(commentRef, {
-        likes: increment(likedComments[commentId] ? -1 : 1)
-      });
+      // Update like using the service
+      const result = await toggleCommentLike(commentId, likedComments[commentId] || false);
+      
+      if (!result.success) {
+        // Revert optimistic update if failed
+        setLikedComments(prev => ({
+          ...prev,
+          [commentId]: !prev[commentId]
+        }));
+      }
     } catch (error) {
       console.error('Error updating like:', error);
       // Revert optimistic update if failed
