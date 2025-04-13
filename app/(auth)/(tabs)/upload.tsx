@@ -166,7 +166,7 @@ export default function UploadScreen(): JSX.Element {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <Text style={styles.title}>Upload New Clip</Text>
         
@@ -281,7 +281,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#121212',
   },
   scrollContainer: {
-    padding: 20,
+    padding: 20,    
   },
   title: {
     fontSize: 24,
