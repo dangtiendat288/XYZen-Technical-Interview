@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   View, 
   StyleSheet, 
@@ -7,18 +7,27 @@ import {
   Text,
   Image,
   FlatList,
-  ActivityIndicator
+  ActivityIndicator,
+  Dimensions,
+  Animated
 } from 'react-native';
+import { Video, AVPlaybackStatus } from 'expo-av';
 import { useRouter } from 'expo-router';
-import { FontAwesome } from '@expo/vector-icons';
+import { FontAwesome, Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { ThemedView } from '@/components/ThemedView';
 import { ThemedText } from '@/components/ThemedText';
 import { useAuth } from '@/context/AuthContext';
 import SignOutButton from '@/components/profile/SignOutButton';
+import VideoPlayer from '@/components/VideoPlayer';
 
 // Firebase imports
 import { getFirestore, collection, query, where, getDocs, orderBy, limit, doc, getDoc } from 'firebase/firestore';
 import { db, storage } from '@/firebase/config';
+
+// Get device dimensions
+const { width, height } = Dimensions.get('window');
 
 // Define interfaces for our data types
 interface UserProfileData {
@@ -45,6 +54,21 @@ interface ClipData {
   title: string;
 }
 
+// Enhanced ClipData interface to match feed items
+interface EnhancedClipData {
+  id: string;
+  thumbnail: string;
+  videoUri: string;
+  title: string;
+  description: string;
+  likes: number;
+  comments: number;
+  shares: number;
+  artist: string;
+  username: string;
+  isVerified: boolean;
+}
+
 const CollectionCard = ({ collection, onPress }: { collection: CollectionData, onPress: () => void }) => (
   <TouchableOpacity style={styles.collectionCard} onPress={onPress}>
     <Image
@@ -59,8 +83,8 @@ const CollectionCard = ({ collection, onPress }: { collection: CollectionData, o
   </TouchableOpacity>
 );
 
-const ClipThumbnail = ({ clip }: { clip: ClipData }) => (
-  <TouchableOpacity style={styles.clipThumbnail}>
+const ClipThumbnail = ({ clip, onPress }: { clip: ClipData, onPress: () => void }) => (
+  <TouchableOpacity style={styles.clipThumbnail} onPress={onPress}>
     <Image source={{ uri: clip.thumbnail }} style={styles.thumbnailImage} />
     <Text style={styles.clipTitle} numberOfLines={1}>{clip.title}</Text>
   </TouchableOpacity>
@@ -73,6 +97,19 @@ export default function ProfileScreen() {
   const [profileData, setProfileData] = useState<UserProfileData | null>(null);
   const [collections, setCollections] = useState<CollectionData[]>([]);
   const [recentClips, setRecentClips] = useState<ClipData[]>([]);
+  const [enhancedClips, setEnhancedClips] = useState<EnhancedClipData[]>([]);
+  const [viewMode, setViewMode] = useState<'profile' | 'clips'>('profile');
+  const [activeClipIndex, setActiveClipIndex] = useState(0);
+  const tabBarHeight = useBottomTabBarHeight();
+  
+  // For animations in clip view
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const flatListRef = useRef<Animated.FlatList<EnhancedClipData>>(null);
+  
+  // Like animations
+  const [likeAnimations, setLikeAnimations] = useState<{[key: string]: Animated.Value}>({});
+  const [playingVideos, setPlayingVideos] = useState<{[key: string]: boolean}>({});
+  const videoRefs = useRef<{[key: string]: Video | null}>({}).current;
 
   // Fetch user profile data
   const fetchUserProfile = async () => {
@@ -92,6 +129,80 @@ export default function ProfileScreen() {
       });
     } catch (error) {
       console.error('Error fetching user profile:', error);
+    }
+  };
+
+  // Enhanced fetch user clips function
+  const fetchUserClips = async () => {
+    if (!user?.uid) return;
+    
+    try {
+      // Query posts created by this user
+      const postsRef = collection(db, 'posts');
+      const q = query(
+        postsRef, 
+        where('userId', '==', user.uid),
+        orderBy('timestamp', 'desc')
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      // Set recent clips (take latest 10)
+      const clipsArray = querySnapshot.docs
+        .slice(0, 10)
+        .map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            thumbnail: data.thumbnailUrl || data.mediaUrl || 'https://via.placeholder.com/100',
+            title: data.title || 'Untitled Clip'
+          };
+        });
+      
+      setRecentClips(clipsArray);
+      
+      // Create enhanced clips data for feed-style viewing
+      const enhancedArray = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        const clip = {
+          id: doc.id,
+          thumbnail: data.thumbnailUrl || data.mediaUrl || 'https://via.placeholder.com/100',
+          videoUri: data.mediaUrl || '',
+          title: data.title || 'Untitled Clip',
+          description: data.description || 'No description provided',
+          likes: data.likes || 0,
+          comments: data.comments || 0,
+          shares: data.shares || 0,
+          artist: userProfile?.displayName || user.email?.split('@')[0] || 'Unknown Artist',
+          username: userProfile?.username ? `@${userProfile.username}` : '@user',
+          isVerified: userProfile?.isVerified || false
+        };
+        
+        // Initialize animation for this clip
+        likeAnimations[doc.id] = new Animated.Value(1);
+        // Initialize video playback state
+        playingVideos[doc.id] = false;
+        
+        return clip;
+      });
+      
+      setEnhancedClips(enhancedArray);
+      setLikeAnimations({...likeAnimations}); // Update state with new animations
+      setPlayingVideos({...playingVideos});
+      
+      // Update the profile data with clip count
+      setProfileData(prevData => {
+        if (!prevData) return prevData;
+        
+        const totalClips = querySnapshot.docs.length;
+        return {
+          ...prevData,
+          clipCount: totalClips
+        };
+      });
+      
+    } catch (error) {
+      console.error('Error fetching clips:', error);
     }
   };
 
@@ -181,6 +292,7 @@ export default function ProfileScreen() {
       setLoading(true);
       try {
         await fetchUserProfile();
+        await fetchUserClips(); // Use the new function that sets both basic and enhanced clips
         await fetchUserCollections();
       } catch (error) {
         console.error('Error loading profile data:', error);
@@ -201,6 +313,128 @@ export default function ProfileScreen() {
   const navigateToCreateCollection = () => {
     router.push('/collections/create');
   };
+  
+  // Switch to full-screen clips view
+  const showClipsView = (initialClipIndex: number = 0) => {
+    setActiveClipIndex(initialClipIndex);
+    setViewMode('clips');
+  };
+  
+  // Return to profile view
+  const showProfileView = () => {
+    setViewMode('profile');
+  };
+  
+  // Handle viewable items change in FlatList
+  const handleViewableItemsChanged = useCallback(({ viewableItems }) => {
+    if (viewableItems.length > 0 && viewableItems[0].index !== null) {
+      const newIndex = viewableItems[0].index;
+      setActiveClipIndex(newIndex);
+      
+      // Play the current video and pause others
+      const newPlayingState = {...playingVideos};
+      
+      // First set all to false
+      Object.keys(newPlayingState).forEach(id => {
+        newPlayingState[id] = false;
+      });
+      
+      // Then set the active one to true
+      if (viewableItems[0].item && viewableItems[0].item.id) {
+        const activeItemId = viewableItems[0].item.id;
+        newPlayingState[activeItemId] = true;
+        
+        // Play the active video
+        if (videoRefs[activeItemId]) {
+          videoRefs[activeItemId]?.playAsync();
+        }
+      }
+      
+      setPlayingVideos(newPlayingState);
+    }
+  }, [playingVideos, videoRefs]);
+  
+  // Handle like animation
+  const handleLikePress = (clipId: string) => {
+    const animation = likeAnimations[clipId];
+    if (animation) {
+      Animated.sequence([
+        Animated.timing(animation, {
+          toValue: 1.3,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+        Animated.timing(animation, {
+          toValue: 1,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  };
+
+  // Render each clip in feed view with video playback
+  const renderClipItem = ({ item, index }) => {
+    const likeAnimation = likeAnimations[item.id];
+    const isPlaying = playingVideos[item.id] || false;
+    
+    const handlePlayPause = () => {
+      const video = videoRefs[item.id];
+      if (video) {
+        if (isPlaying) {
+          video.pauseAsync();
+        } else {
+          video.playAsync();
+        }
+        
+        // Update playing state
+        setPlayingVideos({
+          ...playingVideos,
+          [item.id]: !isPlaying
+        });
+      }
+    };
+    
+    const handleVideoRef = (ref: Video | null) => {
+      if (ref) {
+        videoRefs[item.id] = ref;
+      }
+    };
+    
+    return (
+      <VideoPlayer
+        id={item.id}
+        videoUri={item.videoUri}
+        thumbnail={item.thumbnail}
+        isPlaying={isPlaying}
+        onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
+          if (status.isLoaded) {
+            // Handle playback status updates if needed
+          }
+        }}
+        likeAnimation={likeAnimation}
+        artist={item.artist}
+        username={item.username}
+        description={item.description}
+        title={item.title}
+        likes={item.likes}
+        comments={item.comments}
+        shares={item.shares}
+        isVerified={item.isVerified}
+        onPlayPause={handlePlayPause}
+        onLikePress={() => handleLikePress(item.id)}
+        containerHeight={height - tabBarHeight}
+        showBackButton={true}
+        onBackPress={() => {
+          // Stop all videos when returning to profile view
+          Object.keys(videoRefs).forEach(id => {
+            videoRefs[id]?.pauseAsync();
+          });
+          showProfileView();
+        }}
+      />
+    );
+  };
 
   if (loading) {
     return (
@@ -211,6 +445,41 @@ export default function ProfileScreen() {
     );
   }
 
+  // Show full-screen clips view if in clip mode
+  if (viewMode === 'clips') {
+    return (
+      <View style={styles.clipsViewContainer}>
+        <Animated.FlatList
+          ref={flatListRef}
+          data={enhancedClips}
+          renderItem={renderClipItem}
+          keyExtractor={(item) => item.id}
+          pagingEnabled
+          showsVerticalScrollIndicator={false}
+          snapToInterval={height - tabBarHeight}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          viewabilityConfig={{ 
+            itemVisiblePercentThreshold: 80,
+            minimumViewTime: 300
+          }}
+          onViewableItemsChanged={handleViewableItemsChanged}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+            { useNativeDriver: true }
+          )}
+          initialScrollIndex={activeClipIndex}
+          getItemLayout={(data, index) => ({
+            length: height - tabBarHeight,
+            offset: (height - tabBarHeight) * index,
+            index,
+          })}
+        />
+      </View>
+    );
+  }
+
+  // Regular profile view
   return (
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -257,7 +526,7 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Recent Clips</Text>
-            <TouchableOpacity>
+            <TouchableOpacity onPress={() => showClipsView(0)}>
               <Text style={styles.seeAllText}>See all</Text>
             </TouchableOpacity>
           </View>
@@ -265,7 +534,12 @@ export default function ProfileScreen() {
           {recentClips.length > 0 ? (
             <FlatList
               data={recentClips}
-              renderItem={({ item }) => <ClipThumbnail clip={item} />}
+              renderItem={({ item, index }) => (
+                <ClipThumbnail 
+                  clip={item} 
+                  onPress={() => showClipsView(index)}
+                />
+              )}
               keyExtractor={item => item.id}
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -471,5 +745,10 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     textAlign: 'center',
     marginVertical: 20,
-  }
+  },
+  // New styles for clips view
+  clipsViewContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
 });

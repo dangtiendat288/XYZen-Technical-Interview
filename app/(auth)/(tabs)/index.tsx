@@ -9,6 +9,8 @@ import { FontAwesome, Ionicons, MaterialCommunityIcons } from '@expo/vector-icon
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import VideoPlayer from '@/components/VideoPlayer';
+import { Video, AVPlaybackStatus } from 'expo-av';
 
 // Get device dimensions for full-screen experience
 const { width, height } = Dimensions.get('window');
@@ -94,6 +96,13 @@ export default function FeedScreen(): React.ReactElement {
   const flatListRef = useRef<Animated.FlatList<FeedItem>>(null);
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const scrollY = useRef(new Animated.Value(0)).current;
+  const videoRefs = useRef<{[key: string]: Video | null}>({}).current;
+  const [playingVideos, setPlayingVideos] = useState<{[key: string]: boolean}>(
+    MOCK_FEED_DATA.reduce((acc, item) => {
+      acc[item.id] = false;
+      return acc;
+    }, {} as {[key: string]: boolean})
+  );
   
   // Get safe area insets and tab bar height
   const insets = useSafeAreaInsets();
@@ -113,24 +122,47 @@ export default function FeedScreen(): React.ReactElement {
     { useNativeDriver: true }
   );
 
+  // Handle viewable items change in FlatList
   const handleViewableItemsChanged = useCallback(
     (info: ViewableItemsChangedInfo) => {
       if (info.viewableItems.length > 0 && info.viewableItems[0].index !== null) {
-        setActiveIndex(info.viewableItems[0].index);
+        const newIndex = info.viewableItems[0].index;
+        setActiveIndex(newIndex);
+        
+        // Play the current video and pause others
+        const newPlayingState = {...playingVideos};
+        
+        // First set all to false
+        Object.keys(newPlayingState).forEach(id => {
+          newPlayingState[id] = false;
+        });
+        
+        // Then set the active one to true
+        if (info.viewableItems[0].item && info.viewableItems[0].item.id) {
+          const activeItemId = info.viewableItems[0].item.id;
+          newPlayingState[activeItemId] = true;
+          
+          // Play the active video
+          if (videoRefs[activeItemId]) {
+            videoRefs[activeItemId]?.playAsync();
+          }
+        }
+        
+        setPlayingVideos(newPlayingState);
       }
     },
-    []
+    [playingVideos, videoRefs]
   );
 
   const viewabilityConfig = {
     itemVisiblePercentThreshold: 50
   };
 
-  // Render individual video card
+  // Render individual video card using the shared VideoPlayer component
   const renderVideoCard = useCallback(({ item, index }: ListRenderItemInfo<FeedItem>) => {
     // Get the pre-created animation value for this item
     const likeAnimation = likeAnimations[item.id];
-    const isActive = index === activeIndex;
+    const isPlaying = index === activeIndex;
     
     const handleLikePress = () => {
       Animated.sequence([
@@ -146,104 +178,51 @@ export default function FeedScreen(): React.ReactElement {
         }),
       ]).start();
     };
+    
+    const handlePlayPause = () => {
+      const video = videoRefs[item.id];
+      if (video) {
+        if (playingVideos[item.id]) {
+          video.pauseAsync();
+        } else {
+          video.playAsync();
+        }
+        
+        // Update playing state
+        setPlayingVideos({
+          ...playingVideos,
+          [item.id]: !playingVideos[item.id]
+        });
+      }
+    };
 
     return (
-      <View style={[
-        styles.videoContainer,
-        { height: height - tabBarHeight } // Adjust height to account for tab bar
-      ]}>
-        {/* Video/Image Background */}
-        <Image
-          source={{ uri: item.thumbnail }}
-          style={styles.videoBackground}
-          resizeMode="cover"
-        />
-        
-        {/* Overlay gradient */}
-        <LinearGradient
-          colors={['rgba(0,0,0,0.1)', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.8)']}
-          style={styles.gradient}
-        />
-
-        {/* Interaction controls - right side */}
-        <View style={styles.interactionBar}>
-          <TouchableOpacity style={styles.interactionButton} onPress={handleLikePress}>
-            <Animated.View style={{ transform: [{ scale: likeAnimation }] }}>
-              <Ionicons name="heart" size={28} color={COLORS.primary} />
-            </Animated.View>
-            <ThemedText style={styles.interactionText}>
-              {item.likes > 1000 ? `${(item.likes / 1000).toFixed(1)}M` : `${item.likes}K`}
-            </ThemedText>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.interactionButton}>
-            <Ionicons name="chatbubble-ellipses" size={26} color={COLORS.white} />
-            <ThemedText style={styles.interactionText}>
-              {item.comments}K
-            </ThemedText>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.interactionButton}>
-            <Ionicons name="share-social" size={26} color={COLORS.white} />
-            <ThemedText style={styles.interactionText}>
-              {item.shares}K
-            </ThemedText>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.discButton}>
-            <Image 
-              source={{ uri: item.thumbnail }} 
-              style={styles.musicDisc}
-            />
-          </TouchableOpacity>
-        </View>
-
-        {/* Content info - bottom */}
-        <View style={styles.contentInfo}>
-          <View style={styles.artistRow}>
-            <TouchableOpacity style={styles.artistInfo}>
-              <ThemedText type="subtitle" style={styles.artistName}>
-                {item.artist} {item.isVerified && <Ionicons name="checkmark-circle" size={14} color={COLORS.primary} />}
-              </ThemedText>
-              <ThemedText style={styles.username}>{item.username}</ThemedText>
-            </TouchableOpacity>
-            
-            {/* <TouchableOpacity style={[
-              styles.followButton, 
-              item.isFollowing ? styles.followingButton : {}
-            ]}>
-              <ThemedText style={[
-                styles.followButtonText, 
-                item.isFollowing ? styles.followingButtonText : {}
-              ]}>
-                {item.isFollowing ? 'Following' : 'Follow'}
-              </ThemedText>
-            </TouchableOpacity> */}
-          </View>
-
-          <ThemedText style={styles.description}>
-            {item.description}
-          </ThemedText>
-
-          <View style={styles.songInfoContainer}>
-            <Ionicons name="musical-notes" size={16} color={COLORS.white} />
-            <ThemedText style={styles.songTitle}>{item.songTitle}</ThemedText>
-            <View style={styles.soundwave}>
-              {[...Array(8)].map((_, i) => (
-                <View 
-                  key={i} 
-                  style={[
-                    styles.soundwaveLine,
-                    { height: Math.random() * 12 + 4 }
-                  ]} 
-                />
-              ))}
-            </View>
-          </View>
-        </View>
-      </View>
+      <VideoPlayer
+        id={item.id}
+        videoUri={item.videoUri}
+        thumbnail={item.thumbnail}
+        isPlaying={playingVideos[item.id] || false}
+        onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
+          if (status.isLoaded) {
+            // You can handle additional video events here if needed
+          }
+        }}
+        likeAnimation={likeAnimation}
+        artist={item.artist}
+        username={item.username}
+        description={item.description}
+        title={item.songTitle}
+        likes={item.likes}
+        comments={item.comments}
+        shares={item.shares}
+        isVerified={item.isVerified}
+        onPlayPause={handlePlayPause}
+        onLikePress={handleLikePress}
+        containerHeight={height - tabBarHeight}
+        showBackButton={false}
+      />
     );
-  }, [activeIndex, likeAnimations, tabBarHeight]);
+  }, [activeIndex, likeAnimations, playingVideos, tabBarHeight, videoRefs]);
 
   return (
     <View style={styles.container}>
@@ -319,125 +298,5 @@ const styles = StyleSheet.create({
   },
   feedList: {
     flex: 1,
-  },
-  videoContainer: {
-    width,
-    justifyContent: 'flex-end',
-  },
-  videoBackground: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    bottom: 0,
-    right: 0,
-  },
-  gradient: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: '75%',
-  },
-  interactionBar: {
-    position: 'absolute',
-    right: 15,
-    bottom: 30, // Adjusted to align with the bottom of the content info section
-    alignItems: 'center',
-    justifyContent: 'flex-end', // Ensures buttons align from the bottom
-    height: 'auto', // Allow the height to adjust to content
-  },
-  interactionButton: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  interactionText: {
-    color: COLORS.white,
-    fontSize: 12,
-    marginTop: 3,
-  },
-  discButton: {
-    marginTop: 10,
-    width: 45,
-    height: 45,
-    borderRadius: 25,
-    borderWidth: 10,
-    borderColor: '#000',
-    overflow: 'hidden',
-  },
-  musicDisc: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 20,
-  },
-  contentInfo: {
-    paddingLeft: 20,
-    paddingRight: 80,  // Increased to match the width of the interaction buttons section
-    paddingBottom: 30,
-  },
-  artistRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  artistInfo: {
-    flexDirection: 'column',
-    flex: 1,
-  },
-  artistName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: COLORS.white,
-  },
-  username: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 14,
-  },
-  followButton: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  followingButton: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: COLORS.white,
-  },
-  followButtonText: {
-    color: COLORS.white,
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  followingButtonText: {
-    color: COLORS.white,
-  },
-  description: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.9)',
-    marginBottom: 15,
-  },
-  songInfoContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  songTitle: {
-    marginLeft: 8,
-    color: COLORS.white,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  soundwave: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    marginLeft: 10,
-    height: 14,
-  },
-  soundwaveLine: {
-    width: 2,
-    backgroundColor: COLORS.primary,
-    marginHorizontal: 1,
-    borderRadius: 1,
   },
 });
