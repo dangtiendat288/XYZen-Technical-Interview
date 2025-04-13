@@ -23,7 +23,7 @@ import SignOutButton from '@/components/profile/SignOutButton';
 import VideoPlayer from '@/components/VideoPlayer';
 
 // Firebase imports
-import { getFirestore, collection, query, where, getDocs, orderBy, limit, doc, getDoc } from 'firebase/firestore';
+import { getFirestore, collection, query, where, getDocs, orderBy, limit, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db, storage } from '@/firebase/config';
 
 // Get device dimensions
@@ -132,21 +132,19 @@ export default function ProfileScreen() {
     }
   };
 
-  // Enhanced fetch user clips function
-  const fetchUserClips = async () => {
-    if (!user?.uid) return;
+  // Set up real-time listener for user clips
+  const setupClipsListener = useCallback(() => {
+    if (!user?.uid) return null;
     
-    try {
-      // Query posts created by this user
-      const postsRef = collection(db, 'posts');
-      const q = query(
-        postsRef, 
-        where('userId', '==', user.uid),
-        orderBy('timestamp', 'desc')
-      );
-      
-      const querySnapshot = await getDocs(q);
-      
+    const postsRef = collection(db, 'posts');
+    const q = query(
+      postsRef, 
+      where('userId', '==', user.uid),
+      orderBy('timestamp', 'desc')
+    );
+    
+    // Create and return the listener
+    return onSnapshot(q, (querySnapshot) => {
       // Set recent clips (take latest 10)
       const clipsArray = querySnapshot.docs
         .slice(0, 10)
@@ -162,6 +160,9 @@ export default function ProfileScreen() {
       setRecentClips(clipsArray);
       
       // Create enhanced clips data for feed-style viewing
+      const newLikeAnimations = {...likeAnimations};
+      const newPlayingVideos = {...playingVideos};
+      
       const enhancedArray = querySnapshot.docs.map(doc => {
         const data = doc.data();
         const clip = {
@@ -178,17 +179,22 @@ export default function ProfileScreen() {
           isVerified: userProfile?.isVerified || false
         };
         
-        // Initialize animation for this clip
-        likeAnimations[doc.id] = new Animated.Value(1);
-        // Initialize video playback state
-        playingVideos[doc.id] = false;
+        // Initialize animation for this clip if it doesn't exist
+        if (!newLikeAnimations[doc.id]) {
+          newLikeAnimations[doc.id] = new Animated.Value(1);
+        }
+        
+        // Initialize video playback state if it doesn't exist
+        if (newPlayingVideos[doc.id] === undefined) {
+          newPlayingVideos[doc.id] = false;
+        }
         
         return clip;
       });
       
       setEnhancedClips(enhancedArray);
-      setLikeAnimations({...likeAnimations}); // Update state with new animations
-      setPlayingVideos({...playingVideos});
+      setLikeAnimations(newLikeAnimations);
+      setPlayingVideos(newPlayingVideos);
       
       // Update the profile data with clip count
       setProfileData(prevData => {
@@ -200,27 +206,24 @@ export default function ProfileScreen() {
           clipCount: totalClips
         };
       });
-      
-    } catch (error) {
-      console.error('Error fetching clips:', error);
-    }
-  };
+    }, (error) => {
+      console.error("Error setting up clips listener:", error);
+    });
+  }, [user?.uid, userProfile]);
 
-  // Fetch user collections from Firestore
-  const fetchUserCollections = async () => {
-    if (!user?.uid) return;
+  // Set up real-time listener for user collections
+  const setupCollectionsListener = useCallback(() => {
+    if (!user?.uid) return null;
     
-    try {
-      // Query collections created by this user
-      const collectionsRef = collection(db, 'posts');
-      const q = query(
-        collectionsRef, 
-        where('userId', '==', user.uid),
-        orderBy('timestamp', 'desc')
-      );
-      
-      const querySnapshot = await getDocs(q);
-      
+    const postsRef = collection(db, 'posts');
+    const q = query(
+      postsRef, 
+      where('userId', '==', user.uid),
+      orderBy('timestamp', 'desc')
+    );
+    
+    // Create and return the listener
+    return onSnapshot(q, (querySnapshot) => {
       // Process the query results to group by collection
       const collectionsMap = new Map<string, { posts: any[], timestamp: Date }>();
       
@@ -228,15 +231,17 @@ export default function ProfileScreen() {
         const postData = doc.data();
         const collectionName = postData.collection;
         
-        if (!collectionsMap.has(collectionName)) {
-          collectionsMap.set(collectionName, {
-            posts: [{ id: doc.id, ...postData }],
-            timestamp: postData.timestamp?.toDate() || new Date()
-          });
-        } else {
-          const existingCollection = collectionsMap.get(collectionName);
-          if (existingCollection) {
-            existingCollection.posts.push({ id: doc.id, ...postData });
+        if (collectionName) {  // Only process posts that have a collection
+          if (!collectionsMap.has(collectionName)) {
+            collectionsMap.set(collectionName, {
+              posts: [{ id: doc.id, ...postData }],
+              timestamp: postData.timestamp?.toDate() || new Date()
+            });
+          } else {
+            const existingCollection = collectionsMap.get(collectionName);
+            if (existingCollection) {
+              existingCollection.posts.push({ id: doc.id, ...postData });
+            }
           }
         }
       });
@@ -255,56 +260,43 @@ export default function ProfileScreen() {
       });
       
       setCollections(collectionsArray);
-      
-      // Update the profile data with clip count
-      setProfileData(prevData => {
-        if (!prevData) return prevData;
-        
-        const totalClips = querySnapshot.docs.length;
-        return {
-          ...prevData,
-          clipCount: totalClips
-        };
-      });
-      
-      // Set recent clips (take latest 10)
-      const recentClipsArray = querySnapshot.docs
-        .slice(0, 10)
-        .map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            thumbnail: data.thumbnailUrl || data.mediaUrl || 'https://via.placeholder.com/100',
-            title: data.title || 'Untitled Clip'
-          };
-        });
-      
-      setRecentClips(recentClipsArray);
-      
-    } catch (error) {
-      console.error('Error fetching collections:', error);
-    }
-  };
+    }, (error) => {
+      console.error("Error setting up collections listener:", error);
+    });
+  }, [user?.uid]);
 
   // Load all data on component mount
   useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-      try {
-        await fetchUserProfile();
-        await fetchUserClips(); // Use the new function that sets both basic and enhanced clips
-        await fetchUserCollections();
-      } catch (error) {
-        console.error('Error loading profile data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+    if (!user) return;
     
-    if (user) {
-      loadData();
-    }
-  }, [user]);
+    // Initial loading state
+    setLoading(true);
+    
+    // Fetch the profile data that doesn't need real-time updates
+    fetchUserProfile()
+      .then(() => {
+        setLoading(false);
+      })
+      .catch((error) => {
+        console.error('Error loading profile data:', error);
+        setLoading(false);
+      });
+    
+    // Set up real-time listeners
+    const unsubscribeClips = setupClipsListener();
+    const unsubscribeCollections = setupCollectionsListener();
+    
+    // Clean up listeners when component unmounts
+    return () => {
+      if (unsubscribeClips) unsubscribeClips();
+      if (unsubscribeCollections) unsubscribeCollections();
+      
+      // Also clean up any playing videos
+      Object.keys(videoRefs).forEach(id => {
+        videoRefs[id]?.stopAsync();
+      });
+    };
+  }, [user, setupClipsListener, setupCollectionsListener]);
 
   const navigateToCollection = (collectionId: string) => {
     router.push(`/collections/${collectionId}`);
