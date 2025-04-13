@@ -14,7 +14,7 @@ import { Video, AVPlaybackStatus } from 'expo-av';
 import { getLikedPosts } from '@/services/likeService';
 
 // Firebase imports
-import { collection, query, where, orderBy, limit, getDocs, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, getDocs, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 
 // Get device dimensions for full-screen experience
@@ -35,22 +35,26 @@ interface FeedItem {
   thumbnail: string;
   isVerified: boolean;
   isFollowing?: boolean;
+  userId: string; // Make userId required since we'll use it for username lookup
+  collection?: string; // Add collection field
 }
 
-interface AnimationMap {
-  [key: string]: Animated.Value;
+// Add an interface for user data
+interface UserData {
+  displayName?: string;
+  username?: string;
+  isVerified?: boolean;
 }
 
-interface ViewableItemsChangedInfo {
-  viewableItems: ViewToken[];
-  changed: ViewToken[];
+// Cache for user data to prevent repeated lookups
+interface UserCache {
+  [userId: string]: UserData;
 }
 
 // Default empty state for feed
 const EMPTY_FEED: FeedItem[] = [];
 
-// Define admin UID directly for more efficient querying
-const ADMIN_UID = 'dPBw1hnBrEM4MKiALDaix1hk5E83';
+// Remove the ADMIN_UID constant since we're fetching all posts
 
 export default function FeedScreen(): React.ReactElement {
   const { user } = useAuth();
@@ -76,6 +80,9 @@ export default function FeedScreen(): React.ReactElement {
   // Track liked status of posts
   const [likedStatus, setLikedStatus] = useState<Record<string, boolean>>({});
 
+  // Add user cache to avoid repeated lookups
+  const [userCache, setUserCache] = useState<UserCache>({});
+  
   // Load liked status for posts - only use this to initialize the UI
   useEffect(() => {
     const loadLikedStatus = async () => {
@@ -98,40 +105,90 @@ export default function FeedScreen(): React.ReactElement {
     loadLikedStatus();
   }, [feedData, user]);
 
-  // Fetch admin posts from Firestore
+  // Function to get user data
+  const getUserData = async (userId: string): Promise<UserData | null> => {
+    // Check cache first
+    if (userCache[userId]) {
+      return userCache[userId];
+    }
+    
+    try {
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      if (userDoc.exists()) {
+        const userData = userDoc.data() as UserData;
+        // Update cache
+        setUserCache(prev => ({
+          ...prev,
+          [userId]: userData
+        }));
+        return userData;
+      }
+      return null;
+    } catch (error) {
+      console.error(`Error fetching user data for ${userId}:`, error);
+      return null;
+    }
+  };
+
+  // Fetch all posts from Firestore
   useEffect(() => {
-    const fetchAdminPosts = async () => {
+    const fetchAllPosts = async () => {
       if (!user) return;
       
       setLoading(true);
       setError(null);
       
       try {
-        // Use the admin UID directly instead of querying for it
+        // Query all posts without filtering by user ID
         const postsRef = collection(db, 'posts');
         const postsQuery = query(
           postsRef,
-          where('userId', '==', ADMIN_UID),
           orderBy('timestamp', 'desc'),
-          limit(10)
+          limit(20) // Increased limit to show more posts
         );
         
         // Set up a real-time listener for posts
         const unsubscribeListener = onSnapshot(postsQuery, 
-          (postsSnapshot) => {
+          async (postsSnapshot) => {
             if (postsSnapshot.empty) {
               setFeedData(EMPTY_FEED);
               setLoading(false);
               return;
             }
             
+            // Get all unique user IDs from posts to batch fetch user data
+            const userIds = [...new Set(postsSnapshot.docs.map(doc => doc.data().userId))];
+            
+            // Prefetch user data for all user IDs that aren't in cache
+            const userFetchPromises = userIds
+              .filter(id => !userCache[id])
+              .map(getUserData);
+            
+            // Wait for all user data to be fetched
+            await Promise.all(userFetchPromises);
+            
             // Transform the post data to match our FeedItem interface
-            const posts = postsSnapshot.docs.map(doc => {
+            const posts = await Promise.all(postsSnapshot.docs.map(async (doc) => {
               const data = doc.data();
+              const userId = data.userId;
+              
+              // Get user data (from cache or fetch it)
+              let username = '@user'; // Default username
+              let isVerified = false;
+              
+              if (userId) {
+                const userData = await getUserData(userId);
+                if (userData) {
+                  username = userData.username ? `@${userData.username}` : 
+                            (userData.displayName ? `@${userData.displayName.toLowerCase().replace(/\s+/g, '')}` : '@user');
+                  isVerified = userData.isVerified || false;
+                }
+              }
+              
               return {
                 id: doc.id,
                 artist: data.title || 'Unknown Artist',
-                username: `@${data.username || 'admin'}`,
+                username: username,
                 title: data.title || 'Untitled',
                 description: data.description || '',
                 likes: data.likes || 0,
@@ -139,10 +196,12 @@ export default function FeedScreen(): React.ReactElement {
                 shares: data.shares || 0,
                 videoUri: data.mediaUrl || '',
                 thumbnail: data.thumbnailUrl || 'https://via.placeholder.com/640x360/000000/FFFFFF?text=Video',
-                isVerified: true,
-                isFollowing: false
+                isVerified: isVerified,
+                isFollowing: false,
+                userId: userId,
+                collection: data.collection || ''
               };
-            });
+            }));
             
             setFeedData(posts);
             
@@ -167,7 +226,7 @@ export default function FeedScreen(): React.ReactElement {
             setLoading(false);
           },
           (error) => {
-            console.error('Error fetching admin posts:', error);
+            console.error('Error fetching posts:', error);
             setError('Failed to load feed. Please try again.');
             setLoading(false);
           }
@@ -182,8 +241,8 @@ export default function FeedScreen(): React.ReactElement {
       }
     };
     
-    // Call the function without storing its return value
-    fetchAdminPosts();
+    // Call the function
+    fetchAllPosts();
     
     // Clean up the listener when component unmounts
     return () => {
@@ -191,7 +250,7 @@ export default function FeedScreen(): React.ReactElement {
         unsubscribeRef.current();
       }
     };
-  }, [user]);
+  }, [user, userCache]);
 
   // Handle scroll events to determine active video
   const handleScroll = Animated.event(
@@ -251,6 +310,11 @@ export default function FeedScreen(): React.ReactElement {
     const isPlaying = index === activeIndex;
     const isLiked = likedStatus[item.id] || false;
     
+    // Add collection tag if available
+    const description = item.collection 
+      ? `${item.description}\n#${item.collection.replace(/\s+/g, '')}`
+      : item.description;
+    
     const handlePlayPause = () => {
       const video = videoRefs[item.id];
       if (video) {
@@ -282,7 +346,7 @@ export default function FeedScreen(): React.ReactElement {
         likeAnimation={likeAnimation}
         artist={item.artist}
         username={item.username}
-        description={item.description}
+        description={description}
         title={item.songTitle || item.title}
         likes={item.likes}
         comments={item.comments}
