@@ -12,6 +12,8 @@ import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import VideoPlayer from '@/components/VideoPlayer';
 import { Video, AVPlaybackStatus } from 'expo-av';
 import { getLikedPosts } from '@/services/likeService';
+// Import the ProfileComponent correctly
+import ProfileScreen, { ProfileComponent } from './profile';
 
 // Firebase imports
 import { collection, query, where, orderBy, limit, getDocs, onSnapshot, doc, getDoc } from 'firebase/firestore';
@@ -19,6 +21,17 @@ import { db } from '@/firebase/config';
 
 // Get device dimensions for full-screen experience
 const { width, height } = Dimensions.get('window');
+
+// Define interface for viewable items changed info
+interface ViewableItemsChangedInfo {
+  viewableItems: Array<ViewToken>;
+  changed: Array<ViewToken>;
+}
+
+// Define animation map interface
+interface AnimationMap {
+  [key: string]: Animated.Value;
+}
 
 // Define TypeScript interfaces for feed data
 interface FeedItem {
@@ -70,6 +83,10 @@ export default function FeedScreen(): React.ReactElement {
   // Add reference to store the unsubscribe function
   const unsubscribeRef = useRef<(() => void) | null>(null);
   
+  // Add state for profile overlay
+  const [showProfile, setShowProfile] = useState<boolean>(false);
+  const [profileUserId, setProfileUserId] = useState<string | undefined>(undefined);
+  
   // Get safe area insets and tab bar height
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
@@ -82,6 +99,35 @@ export default function FeedScreen(): React.ReactElement {
 
   // Add user cache to avoid repeated lookups
   const [userCache, setUserCache] = useState<UserCache>({});
+  
+  // Handle username clicks to show profile overlay
+  const handleUsernameClick = (userId: string) => {
+    if (userId) {
+      // Pause all videos when showing profile
+      Object.keys(videoRefs).forEach(id => {
+        videoRefs[id]?.pauseAsync();
+      });
+      
+      setProfileUserId(userId);
+      setShowProfile(true);
+    }
+  };
+  
+  // Close the profile overlay and resume video playback
+  const handleCloseProfile = () => {
+    setShowProfile(false);
+    
+    // Resume playback of the current video
+    const currentVideoId = feedData[activeIndex]?.id;
+    if (currentVideoId && videoRefs[currentVideoId]) {
+      videoRefs[currentVideoId]?.playAsync();
+      
+      setPlayingVideos(prev => ({
+        ...prev,
+        [currentVideoId]: true
+      }));
+    }
+  };
   
   // Load liked status for posts - only use this to initialize the UI
   useEffect(() => {
@@ -357,6 +403,7 @@ export default function FeedScreen(): React.ReactElement {
         onLikePress={(newStatus) => handleLikeChange(item.id, newStatus)}
         containerHeight={height - tabBarHeight}
         showBackButton={false}
+        onUsernamePress={() => handleUsernameClick(item.userId)}
       />
     );
   }, [activeIndex, likeAnimations, playingVideos, tabBarHeight, videoRefs, likedStatus]);
@@ -429,6 +476,15 @@ export default function FeedScreen(): React.ReactElement {
         style={styles.feedList}
         contentContainerStyle={{ paddingBottom: tabBarHeight }}
       />
+      
+      {/* Profile overlay */}
+      {showProfile && (
+        <ProfileComponent 
+          isOverlay={true} 
+          onClose={handleCloseProfile} 
+          userId={profileUserId}
+        />
+      )}
     </View>
   );
 }

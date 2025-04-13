@@ -38,6 +38,7 @@ interface VideoPlayerProps {
   containerHeight?: number;
   showBackButton?: boolean;
   onBackPress?: () => void;
+  onUsernamePress?: () => void;
 }
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -60,7 +61,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onLikePress,
   containerHeight = height,
   showBackButton = false,
-  onBackPress
+  onBackPress,
+  onUsernamePress
 }) => {
   const videoRef = useRef<Video | null>(null);
   const [controlsVisible, setControlsVisible] = useState<boolean>(false);
@@ -282,7 +284,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <Text style={styles.artistName}>
               {artist} {isVerified && <Ionicons name="checkmark-circle" size={14} color="#1DB954" />}
             </Text>
-            <Text style={styles.username}>{username}</Text>
+            {onUsernamePress ? (
+              <TouchableOpacity onPress={onUsernamePress}>
+                <Text style={[styles.username, styles.clickableUsername]}>{username}</Text>
+              </TouchableOpacity>
+            ) : (
+              <Text style={styles.username}>{username}</Text>
+            )}
           </View>
         </View>
 
@@ -386,6 +394,9 @@ const styles = StyleSheet.create({
   username: {
     color: 'rgba(255,255,255,0.8)',
     fontSize: 14,
+  },
+  clickableUsername: {
+    textDecorationLine: 'underline',
   },
   description: {
     fontSize: 14,

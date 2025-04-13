@@ -12,7 +12,7 @@ import {
   Animated
 } from 'react-native';
 import { Video, AVPlaybackStatus } from 'expo-av';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { FontAwesome, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
@@ -54,6 +54,13 @@ interface ClipData {
   title: string;
 }
 
+// Define interfaces for component props
+interface ProfileScreenProps {
+  isOverlay?: boolean;
+  onClose?: () => void;
+  userId?: string;
+}
+
 // Enhanced ClipData interface to match feed items
 interface EnhancedClipData {
   id: string;
@@ -90,15 +97,23 @@ const ClipThumbnail = ({ clip, onPress }: { clip: ClipData, onPress: () => void 
   </TouchableOpacity>
 );
 
-export default function ProfileScreen() {
+export function ProfileComponent({ isOverlay = false, onClose, userId: profileUserId }: ProfileScreenProps) {
   const { user, userProfile } = useAuth();
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
+  const { userId: routeUserId } = useLocalSearchParams<{ userId: string }>();
+  
+  // Determine which userId to use - prop takes precedence over route
+  const userId = profileUserId || routeUserId;
+  
+  // Determine if we're viewing the current user's profile or someone else's
+  const isCurrentUser = !userId || userId === user?.uid;
+  
   const [profileData, setProfileData] = useState<UserProfileData | null>(null);
   const [collections, setCollections] = useState<CollectionData[]>([]);
   const [recentClips, setRecentClips] = useState<ClipData[]>([]);
   const [enhancedClips, setEnhancedClips] = useState<EnhancedClipData[]>([]);
   const [viewMode, setViewMode] = useState<'profile' | 'clips'>('profile');
+  const [loading, setLoading] = useState(true);
   const [activeClipIndex, setActiveClipIndex] = useState(0);
   const tabBarHeight = useBottomTabBarHeight();
   
@@ -430,7 +445,7 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, isOverlay && styles.overlayContainer]}>
         <ActivityIndicator size="large" color="#1DB954" />
         <Text style={styles.loadingText}>Loading profile...</Text>
       </View>
@@ -440,7 +455,7 @@ export default function ProfileScreen() {
   // Show full-screen clips view if in clip mode
   if (viewMode === 'clips') {
     return (
-      <View style={styles.clipsViewContainer}>
+      <View style={[styles.clipsViewContainer, isOverlay && styles.overlayContainer]}>
         <Animated.FlatList
           ref={flatListRef}
           data={enhancedClips}
@@ -473,7 +488,12 @@ export default function ProfileScreen() {
 
   // Regular profile view
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isOverlay && styles.overlayContainer]}>
+      {isOverlay && (
+        <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+          <Ionicons name="close" size={28} color="white" />
+        </TouchableOpacity>
+      )}
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Profile Header */}
         <View style={styles.header}>
@@ -510,7 +530,7 @@ export default function ProfileScreen() {
             <TouchableOpacity style={styles.editButton}>
               <Text style={styles.buttonText}>Edit Profile</Text>
             </TouchableOpacity>
-            <SignOutButton />
+            {isCurrentUser && <SignOutButton />}
           </View>
         </View>
 
@@ -569,6 +589,11 @@ export default function ProfileScreen() {
       </ScrollView>
     </View>
   );
+}
+
+// Default export for standalone screen
+export default function ProfileScreen() {
+  return <ProfileComponent />;
 }
 
 const styles = StyleSheet.create({
@@ -742,5 +767,26 @@ const styles = StyleSheet.create({
   clipsViewContainer: {
     flex: 1,
     backgroundColor: '#000',
+  },
+  overlayContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 100,
+    backgroundColor: '#121212',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 101,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
