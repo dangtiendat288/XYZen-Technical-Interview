@@ -121,7 +121,7 @@ export default function ProfileScreen() {
       setProfileData({
         displayName: userProfile?.displayName || user?.email?.split('@')[0] || 'Artist Name',
         username: userProfile?.username || user?.email?.split('@')[0] || 'username',
-        bio: userProfile?.bio || 'Music producer & artist based in Los Angeles.',
+        bio: userProfile?.bio || 'Music producer & artist based in Phoenix.',
         photoURL: userProfile?.photoURL || 'https://www.comfortzone.com/-/media/project/oneweb/comfortzone/images/blog/how-can-i-soothe-and-calm-my-cat.jpeg?h=717&iar=0&w=1000&hash=4B47BC0AD485430E429977C30A7A37DF',
         followersCount: userProfile?.followersCount || 0,
         followingCount: userProfile?.followingCount || 0,
