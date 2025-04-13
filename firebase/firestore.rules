@@ -9,26 +9,26 @@ service cloud.firestore {
 
     // Users collection
     match /users/{userId} {
-      // Users can read/write their own documents
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-      // Everyone can read basic user profiles
-      allow read: if request.auth != null;
+      // Anyone can read user profiles
+      allow read: if true;
       
-      // Allow updating likedPosts array for any authenticated user
-      allow update: if request.auth != null && 
-                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likedPosts']);
+      // Users can only create and update their own profiles
+      allow create, update: if request.auth != null && request.auth.uid == userId;
+      
+      // Only admins can delete user profiles
+      allow delete: if false;
     }
 
     // Posts collection - updated to handle likes
     match /posts/{postId} {
-      // Authenticated users can read all posts
-      allow read: if request.auth != null;
+      // Anyone can read posts
+      allow read: if true;
       
-      // Users can create posts with their userId
+      // Only authenticated users can create posts
       allow create: if request.auth != null && 
                      request.resource.data.userId == request.auth.uid;
       
-      // Users can update/delete only their own posts
+      // Users can only update and delete their own posts
       allow update, delete: if request.auth != null && 
                              resource.data.userId == request.auth.uid;
       
@@ -47,29 +47,44 @@ service cloud.firestore {
       allow read: if request.auth != null;
       
       // User can create collections
-      allow create: if request.auth != null;
+      allow create: if request.auth != null && 
+                     request.resource.data.createdBy == request.auth.uid;
       
       // Users can only update/delete collections they created
       allow update, delete: if request.auth != null && 
                             resource.data.createdBy == request.auth.uid;
+                            
+      // Allow updating only the itemCount field by any authenticated user
+      allow update: if request.auth != null && 
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['itemCount']);
     }
     
     // Comments
     match /comments/{commentId} {
-      // Authenticated users can read all comments
-      allow read: if request.auth != null;
+      // Anyone can read comments
+      allow read: if true;
       
-      // Users can create comments with their userId
+      // Only authenticated users can create comments
       allow create: if request.auth != null && 
                      request.resource.data.userId == request.auth.uid;
       
       // Users can only update/delete their own comments
       allow update, delete: if request.auth != null && 
-                             resource.data.userId == request.auth.uid;
+                            resource.data.userId == request.auth.uid;
+    }
+    
+    // Likes (optional separate collection for more complex like functionality)
+    match /likes/{likeId} {
+      // Anyone can read likes
+      allow read: if true;
       
-      // Allow updates for likes count by anyone
-      allow update: if request.auth != null && 
-                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes']);
+      // Only authenticated users can create likes, and they can only like as themselves
+      allow create: if request.auth != null && 
+                     request.resource.data.userId == request.auth.uid;
+      
+      // Users can only update/delete their own likes
+      allow delete: if request.auth != null && 
+                     resource.data.userId == request.auth.uid;
     }
     
     // Videos collection for video like functionality

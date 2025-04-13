@@ -260,47 +260,29 @@ export function ProfileComponent({ isOverlay = false, onClose, userId: profileUs
   const setupCollectionsListener = useCallback(() => {
     if (!targetUserId) return null;
     
-    const postsRef = collection(db, 'posts');
+    const collectionsRef = collection(db, 'collections');
     const q = query(
-      postsRef, 
-      where('userId', '==', targetUserId),
+      collectionsRef, 
+      where('createdBy', '==', targetUserId),
       orderBy('timestamp', 'desc')
     );
     
     // Create and return the listener
     return onSnapshot(q, (querySnapshot) => {
-      // Process the query results to group by collection
-      const collectionsMap = new Map<string, { posts: any[], timestamp: Date }>();
+      if (querySnapshot.empty) {
+        setCollections([]);
+        return;
+      }
       
-      querySnapshot.forEach(doc => {
-        const postData = doc.data();
-        const collectionName = postData.collection;
-        
-        if (collectionName) {  // Only process posts that have a collection
-          if (!collectionsMap.has(collectionName)) {
-            collectionsMap.set(collectionName, {
-              posts: [{ id: doc.id, ...postData }],
-              timestamp: postData.timestamp?.toDate() || new Date()
-            });
-          } else {
-            const existingCollection = collectionsMap.get(collectionName);
-            if (existingCollection) {
-              existingCollection.posts.push({ id: doc.id, ...postData });
-            }
-          }
-        }
-      });
-      
-      // Convert the map to an array for display
-      const collectionsArray = Array.from(collectionsMap, ([key, value]) => {
-        // Choose the first post's thumbnail as the collection cover
-        const firstPost = value.posts[0];
+      // Map the collections data
+      const collectionsArray = querySnapshot.docs.map(doc => {
+        const data = doc.data();
         return {
-          id: key,
-          title: key,
-          description: `Collection of ${value.posts.length} clips`,
-          coverImage: firstPost.thumbnailUrl || firstPost.mediaUrl || 'https://via.placeholder.com/150',
-          itemCount: value.posts.length,
+          id: doc.id,
+          title: data.title || 'Untitled Collection',
+          description: data.description || 'No description',
+          coverImage: data.coverImage || 'https://via.placeholder.com/150',
+          itemCount: data.itemCount || 0,
         };
       });
       
