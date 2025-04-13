@@ -20,3 +20,150 @@ Before the deadline, please reply to this email with:
 • Any ADDITIONAL notes or documentation you’d like to include
 
 This project is intended to simulate a real-world product sprint, so please prioritize building something that works over polishing every last detail. We know this is a time-boxed challenge, and we’re excited to see what you create under pressure. Please let us know if you have any questions.
+
+Game plan:
+
+🔧 TECH STACK (Recommended)
+
+Frontend (Mobile App):
+
+    React Native (Expo for fast iteration)
+    
+
+Backend:    
+    Database: Firebase (fast)
+
+    Storage: Firebase Storage
+
+🕒 70-HOUR EXECUTION PLAN
+🕐 Phase 1: Setup + Core Feed UI (Hours 0–10)
+
+Goals:
+
+    Project scaffolding (GitHub repo, Expo project)
+
+    Feed layout (TikTok/Reels style vertical scroll)
+
+    Placeholder content (mock videos/snippets)
+
+Tasks:
+
+    Set up navigation stack (Expo Router)
+
+    Create FeedScreen with mock post cards
+
+    Card should support: video playback, like button, comment button, share button
+
+🕑 Phase 2: Backend MVP (Hours 10–20)
+
+Goals:
+
+    API endpoints + DB schema
+
+    Upload, fetch, and interact with posts
+
+Tasks:
+
+    Set up Firebase
+
+    Tables: Users, Posts, Likes, Comments, Collections
+
+    Backend endpoints:
+
+        GET /feed
+
+        POST /upload
+
+        POST /like
+
+        POST /comment
+
+    Basic auth with Firebase email
+
+🕒 Phase 3: Upload & Playback (Hours 20–35)
+
+Goals:
+
+    Upload short-form clips
+
+    Video/audio preview with title/description
+
+Tasks:
+
+    Add UploadScreen
+
+    Integrate camera/file picker (Expo ImagePicker + AV)
+
+    Store media in Firebase Storage
+
+    Connect to backend
+
+🕓 Phase 4: Interactions & Profiles (Hours 35–50)
+
+Goals:
+
+    Likes, comments, user profile page
+
+Tasks:
+
+    Add ProfileScreen (with collections/albums)
+
+    Add comments modal
+
+    Show user’s clips grouped by “albums” (tag field)
+
+🕔 Phase 5: Collections (Hours 50–60)
+
+Goals:
+
+    Support content grouping
+
+    Allow user to assign a post to a “collection”
+
+Tasks:
+
+    Add "New Collection" modal
+
+    Show collections on profile
+
+    Collection screen: List posts under that theme
+
+🕕 Phase 6: Polish + Final Video (Hours 60–70)
+
+Goals:
+
+    UI polish
+
+    Bug fixes
+
+    Record demo video
+
+Tasks:
+
+    Add basic branding + transitions
+
+    Test flows (upload, view, like, comment, collections)
+
+    Record a 2–3 minute video (OBS or phone screen capture)
+
+    Publish GitHub repo & YouTube demo
+
+✅ Submission Checklist
+
+Public GitHub repo with all source code
+
+YouTube video showing main features (feed, upload, profile)
+
+README with instructions + brief architecture
+
+    Bonus: Demo credentials or dummy login info
+
+💡 Pro Tips
+
+    Hardcode some dummy clips early for faster UI iteration
+
+    Reuse components for feed and collections
+
+    Use Firebase auth + storage if you want minimal backend hassle
+
+    Keep commits frequent and clean for reviewers
