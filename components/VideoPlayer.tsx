@@ -12,6 +12,7 @@ import { Video, AVPlaybackStatus } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS } from '@/constants/theme';
+import CommentModal from './CommentModal';
 
 const { width, height } = Dimensions.get('window');
 
@@ -61,11 +62,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const videoRef = useRef<Video | null>(null);
   const [controlsVisible, setControlsVisible] = useState<boolean>(false);
   const [localIsPlaying, setLocalIsPlaying] = useState<boolean>(isPlaying);
+  const [commentModalVisible, setCommentModalVisible] = useState<boolean>(false);
+  const [localCommentCount, setLocalCommentCount] = useState<number>(comments);
 
   // Update local state when prop changes
   React.useEffect(() => {
     setLocalIsPlaying(isPlaying);
   }, [isPlaying]);
+
+  // Update local comment count when props change
+  React.useEffect(() => {
+    setLocalCommentCount(comments);
+  }, [comments]);
 
   // Format numbers for display (K/M)
   const formatNumber = (num: number) => {
@@ -101,6 +109,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setTimeout(() => {
       setControlsVisible(false);
     }, 1500);
+  };
+
+  // Handle comment button press
+  const handleCommentPress = () => {
+    // Pause video when opening comments
+    if (videoRef.current && localIsPlaying) {
+      videoRef.current.pauseAsync().then(() => {
+        setLocalIsPlaying(false);
+        if (onPlayPause) {
+          onPlayPause();
+        }
+      });
+    }
+    
+    setCommentModalVisible(true);
   };
 
   return (
@@ -177,9 +200,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <Text style={styles.interactionText}>{formatNumber(likes)}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.interactionButton}>
+        <TouchableOpacity 
+          style={styles.interactionButton}
+          onPress={handleCommentPress}
+        >
           <Ionicons name="chatbubble-ellipses" size={26} color="#fff" />
-          <Text style={styles.interactionText}>{formatNumber(comments)}</Text>
+          <Text style={styles.interactionText}>{formatNumber(localCommentCount)}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.interactionButton}>
@@ -206,11 +232,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <Text style={styles.songTitle}>{title}</Text>
         </View>
       </View>
+
+      {/* Comment Modal */}
+      <CommentModal
+        visible={commentModalVisible}
+        onClose={() => setCommentModalVisible(false)}
+        videoId={id}
+        commentCount={localCommentCount}
+        onCommentCountChange={(newCount) => setLocalCommentCount(newCount)}
+      />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
+  // ...existing styles remain unchanged...
   container: {
     width: width,
     justifyContent: 'flex-end',
