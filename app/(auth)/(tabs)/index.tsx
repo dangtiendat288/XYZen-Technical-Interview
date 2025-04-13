@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
     right: 0,
     height: 100,
     zIndex: 10,
-    paddingTop: 45,
+    paddingTop: 60,
   },
   headerContent: {
     flexDirection: 'row',
@@ -341,8 +341,10 @@ const styles = StyleSheet.create({
   interactionBar: {
     position: 'absolute',
     right: 15,
-    bottom: 120, // Adjust position to avoid tab bar
+    bottom: 30, // Adjusted to align with the bottom of the content info section
     alignItems: 'center',
+    justifyContent: 'flex-end', // Ensures buttons align from the bottom
+    height: 'auto', // Allow the height to adjust to content
   },
   interactionButton: {
     alignItems: 'center',
@@ -368,7 +370,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   contentInfo: {
-    paddingHorizontal: 20,
+    paddingLeft: 20,
+    paddingRight: 80,  // Increased to match the width of the interaction buttons section
     paddingBottom: 30,
   },
   artistRow: {
