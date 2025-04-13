@@ -13,78 +13,186 @@ import { useRouter } from 'expo-router';
 import { FontAwesome } from '@expo/vector-icons';
 import { ThemedView } from '@/components/ThemedView';
 import { ThemedText } from '@/components/ThemedText';
-import { COLORS, SIZES } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import SignOutButton from '@/components/profile/SignOutButton';
 
-// Mock data for testing
-const mockCollections = [
-  {
-    id: '1',
-    title: 'Upcoming EP Previews',
-    description: 'Sneak peeks of tracks from my upcoming EP',
-    coverImage: 'https://via.placeholder.com/150',
-    itemCount: 5,
-  },
-  {
-    id: '2',
-    title: 'Studio Freestyles',
-    description: 'Raw moments from the studio sessions',
-    coverImage: 'https://via.placeholder.com/150',
-    itemCount: 8,
-  },
-  {
-    id: '3',
-    title: 'Fan Collabs',
-    description: 'Collaborations with amazing fans',
-    coverImage: 'https://via.placeholder.com/150',
-    itemCount: 3,
-  },
-];
+// Firebase imports
+import { getFirestore, collection, query, where, getDocs, orderBy, limit, doc, getDoc } from 'firebase/firestore';
+import { db, storage } from '@/firebase/config';
 
-// Mock data for recent clips
-const recentClips = [
-  { id: '1', thumbnail: 'https://via.placeholder.com/100', title: 'New beat drop' },
-  { id: '2', thumbnail: 'https://via.placeholder.com/100', title: 'Acoustic version' },
-  { id: '3', thumbnail: 'https://via.placeholder.com/100', title: 'Behind the scenes' },
-  { id: '4', thumbnail: 'https://via.placeholder.com/100', title: 'Lyrics test' },
-];
+// Define interfaces for our data types
+interface UserProfileData {
+  displayName: string;
+  username: string;
+  bio: string;
+  photoURL: string;
+  followersCount: number;
+  followingCount: number;
+  clipCount: number;
+}
 
-const CollectionCard = ({ collection, onPress }: any) => (
+interface CollectionData {
+  id: string;
+  title: string;
+  description: string;
+  coverImage: string;
+  itemCount: number;
+}
+
+interface ClipData {
+  id: string;
+  thumbnail: string;
+  title: string;
+}
+
+const CollectionCard = ({ collection, onPress }: { collection: CollectionData, onPress: () => void }) => (
   <TouchableOpacity style={styles.collectionCard} onPress={onPress}>
     <Image
       source={{ uri: collection.coverImage }}
       style={styles.collectionCover}
     />
     <View style={styles.collectionInfo}>
-      <ThemedText type="defaultSemiBold">{collection.title}</ThemedText>
-      <ThemedText style={styles.collectionDescription}>{collection.description}</ThemedText>
-      <ThemedText style={styles.itemCount}>{collection.itemCount} clips</ThemedText>
+      <ThemedText style={styles.collectionTitle}>{collection.title}</ThemedText>
+      <Text style={styles.collectionDescription}>{collection.description}</Text>
+      <Text style={styles.itemCount}>{collection.itemCount} clips</Text>
     </View>
   </TouchableOpacity>
 );
 
-const ClipThumbnail = ({ clip }: any) => (
+const ClipThumbnail = ({ clip }: { clip: ClipData }) => (
   <TouchableOpacity style={styles.clipThumbnail}>
     <Image source={{ uri: clip.thumbnail }} style={styles.thumbnailImage} />
-    <ThemedText style={styles.clipTitle} numberOfLines={1}>{clip.title}</ThemedText>
+    <Text style={styles.clipTitle} numberOfLines={1}>{clip.title}</Text>
   </TouchableOpacity>
 );
 
 export default function ProfileScreen() {
-  const { user } = useAuth();
+  const { user, userProfile } = useAuth();
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [collections, setCollections] = useState(mockCollections);
+  const [loading, setLoading] = useState(true);
+  const [profileData, setProfileData] = useState<UserProfileData | null>(null);
+  const [collections, setCollections] = useState<CollectionData[]>([]);
+  const [recentClips, setRecentClips] = useState<ClipData[]>([]);
 
-  // In a real app, this would fetch data from Firebase
+  // Fetch user profile data
+  const fetchUserProfile = async () => {
+    if (!user?.uid) return;
+    
+    try {
+      // User profile is already fetched through the AuthContext
+      // Just format the data
+      setProfileData({
+        displayName: userProfile?.displayName || user?.email?.split('@')[0] || 'Artist Name',
+        username: userProfile?.username || user?.email?.split('@')[0] || 'username',
+        bio: userProfile?.bio || 'Music producer & artist based in Los Angeles.',
+        photoURL: userProfile?.photoURL || 'https://www.comfortzone.com/-/media/project/oneweb/comfortzone/images/blog/how-can-i-soothe-and-calm-my-cat.jpeg?h=717&iar=0&w=1000&hash=4B47BC0AD485430E429977C30A7A37DF',
+        followersCount: userProfile?.followersCount || 0,
+        followingCount: userProfile?.followingCount || 0,
+        clipCount: 0, // Will be updated when we fetch clips
+      });
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+    }
+  };
+
+  // Fetch user collections from Firestore
+  const fetchUserCollections = async () => {
+    if (!user?.uid) return;
+    
+    try {
+      // Query collections created by this user
+      const collectionsRef = collection(db, 'posts');
+      const q = query(
+        collectionsRef, 
+        where('userId', '==', user.uid),
+        orderBy('timestamp', 'desc')
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      // Process the query results to group by collection
+      const collectionsMap = new Map<string, { posts: any[], timestamp: Date }>();
+      
+      querySnapshot.forEach(doc => {
+        const postData = doc.data();
+        const collectionName = postData.collection;
+        
+        if (!collectionsMap.has(collectionName)) {
+          collectionsMap.set(collectionName, {
+            posts: [{ id: doc.id, ...postData }],
+            timestamp: postData.timestamp?.toDate() || new Date()
+          });
+        } else {
+          const existingCollection = collectionsMap.get(collectionName);
+          if (existingCollection) {
+            existingCollection.posts.push({ id: doc.id, ...postData });
+          }
+        }
+      });
+      
+      // Convert the map to an array for display
+      const collectionsArray = Array.from(collectionsMap, ([key, value]) => {
+        // Choose the first post's thumbnail as the collection cover
+        const firstPost = value.posts[0];
+        return {
+          id: key,
+          title: key,
+          description: `Collection of ${value.posts.length} clips`,
+          coverImage: firstPost.thumbnailUrl || firstPost.mediaUrl || 'https://via.placeholder.com/150',
+          itemCount: value.posts.length,
+        };
+      });
+      
+      setCollections(collectionsArray);
+      
+      // Update the profile data with clip count
+      setProfileData(prevData => {
+        if (!prevData) return prevData;
+        
+        const totalClips = querySnapshot.docs.length;
+        return {
+          ...prevData,
+          clipCount: totalClips
+        };
+      });
+      
+      // Set recent clips (take latest 10)
+      const recentClipsArray = querySnapshot.docs
+        .slice(0, 10)
+        .map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            thumbnail: data.thumbnailUrl || data.mediaUrl || 'https://via.placeholder.com/100',
+            title: data.title || 'Untitled Clip'
+          };
+        });
+      
+      setRecentClips(recentClipsArray);
+      
+    } catch (error) {
+      console.error('Error fetching collections:', error);
+    }
+  };
+
+  // Load all data on component mount
   useEffect(() => {
-    // Simulating data loading
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-    }, 1000);
-  }, []);
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        await fetchUserProfile();
+        await fetchUserCollections();
+      } catch (error) {
+        console.error('Error loading profile data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    if (user) {
+      loadData();
+    }
+  }, [user]);
 
   const navigateToCollection = (collectionId: string) => {
     router.push(`/collections/${collectionId}`);
@@ -94,43 +202,52 @@ export default function ProfileScreen() {
     router.push('/collections/create');
   };
 
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#1DB954" />
+        <Text style={styles.loadingText}>Loading profile...</Text>
+      </View>
+    );
+  }
+
   return (
-    <ThemedView style={styles.container}>
+    <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Profile Header */}
         <View style={styles.header}>
           <View style={styles.profileRow}>
             <Image 
-              source={{ uri: 'https://via.placeholder.com/100' }}
+              source={{ uri: profileData?.photoURL || 'https://www.comfortzone.com/-/media/project/oneweb/comfortzone/images/blog/how-can-i-soothe-and-calm-my-cat.jpeg?h=717&iar=0&w=1000&hash=4B47BC0AD485430E429977C30A7A37DF' }}
               style={styles.profileImage}
             />
             <View style={styles.profileInfo}>
-              <ThemedText type="title">{user?.email?.split('@')[0] || 'Artist Name'}</ThemedText>
-              <ThemedText style={styles.username}>@{user?.email?.split('@')[0] || 'username'}</ThemedText>
+              <Text style={styles.displayName}>{profileData?.displayName}</Text>
+              <Text style={styles.username}>@{profileData?.username}</Text>
               <View style={styles.statsRow}>
                 <View style={styles.stat}>
-                  <ThemedText type="defaultSemiBold">128</ThemedText>
-                  <ThemedText style={styles.statLabel}>Clips</ThemedText>
+                  <Text style={styles.statCount}>{profileData?.clipCount || 0}</Text>
+                  <Text style={styles.statLabel}>Clips</Text>
                 </View>
                 <View style={styles.stat}>
-                  <ThemedText type="defaultSemiBold">1.2K</ThemedText>
-                  <ThemedText style={styles.statLabel}>Followers</ThemedText>
+                  <Text style={styles.statCount}>{profileData?.followersCount || 0}</Text>
+                  <Text style={styles.statLabel}>Followers</Text>
                 </View>
                 <View style={styles.stat}>
-                  <ThemedText type="defaultSemiBold">348</ThemedText>
-                  <ThemedText style={styles.statLabel}>Following</ThemedText>
+                  <Text style={styles.statCount}>{profileData?.followingCount || 0}</Text>
+                  <Text style={styles.statLabel}>Following</Text>
                 </View>
               </View>
             </View>
           </View>
           
           <View style={styles.bioSection}>
-            <ThemedText>Music producer & artist based in Los Angeles.</ThemedText>
+            <Text style={styles.bioText}>{profileData?.bio}</Text>
           </View>
           
           <View style={styles.actionButtons}>
             <TouchableOpacity style={styles.editButton}>
-              <ThemedText style={styles.buttonText}>Edit Profile</ThemedText>
+              <Text style={styles.buttonText}>Edit Profile</Text>
             </TouchableOpacity>
             <SignOutButton />
           </View>
@@ -139,37 +256,39 @@ export default function ProfileScreen() {
         {/* Recent Clips */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <ThemedText type="subtitle">Recent Clips</ThemedText>
+            <Text style={styles.sectionTitle}>Recent Clips</Text>
             <TouchableOpacity>
-              <ThemedText style={styles.seeAllText}>See all</ThemedText>
+              <Text style={styles.seeAllText}>See all</Text>
             </TouchableOpacity>
           </View>
           
-          <FlatList
-            data={recentClips}
-            renderItem={({ item }) => <ClipThumbnail clip={item} />}
-            keyExtractor={item => item.id}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.recentClipsContainer}
-          />
+          {recentClips.length > 0 ? (
+            <FlatList
+              data={recentClips}
+              renderItem={({ item }) => <ClipThumbnail clip={item} />}
+              keyExtractor={item => item.id}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.recentClipsContainer}
+            />
+          ) : (
+            <Text style={styles.emptyText}>No clips uploaded yet</Text>
+          )}
         </View>
 
         {/* Collections */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <ThemedText type="subtitle">Collections</ThemedText>
+            <Text style={styles.sectionTitle}>Collections</Text>
             <TouchableOpacity onPress={navigateToCreateCollection}>
               <View style={styles.createButton}>
-                <FontAwesome name="plus" size={14} color={COLORS.primary} />
-                <ThemedText style={styles.createButtonText}>Create</ThemedText>
+                <FontAwesome name="plus" size={14} color="#1DB954" />
+                <Text style={styles.createButtonText}>Create</Text>
               </View>
             </TouchableOpacity>
           </View>
 
-          {loading ? (
-            <ActivityIndicator size="large" color={COLORS.primary} style={styles.loader} />
-          ) : (
+          {collections.length > 0 ? (
             collections.map((collection) => (
               <CollectionCard
                 key={collection.id}
@@ -177,17 +296,31 @@ export default function ProfileScreen() {
                 onPress={() => navigateToCollection(collection.id)}
               />
             ))
+          ) : (
+            <Text style={styles.emptyText}>No collections created yet</Text>
           )}
         </View>
       </ScrollView>
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#121212',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#fff',
+    marginTop: 10,
+    fontSize: 16,
+  },
   container: {
     flex: 1,
-    paddingTop: 60, // Add padding for status bar
+    paddingTop: 60,
+    backgroundColor: '#121212',
   },
   header: {
     padding: 20,
@@ -207,9 +340,15 @@ const styles = StyleSheet.create({
   profileInfo: {
     flex: 1,
   },
+  displayName: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
   username: {
-    color: COLORS.gray,
+    color: '#B3B3B3',
     marginVertical: 2,
+    fontSize: 16,
   },
   statsRow: {
     flexDirection: 'row',
@@ -218,12 +357,21 @@ const styles = StyleSheet.create({
   stat: {
     marginRight: 20,
   },
+  statCount: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
   statLabel: {
-    color: COLORS.gray,
+    color: '#B3B3B3',
     fontSize: 12,
   },
   bioSection: {
     marginTop: 15,
+  },
+  bioText: {
+    color: '#FFFFFF',
+    fontSize: 14,
   },
   actionButtons: {
     flexDirection: 'row',
@@ -231,7 +379,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   editButton: {
-    backgroundColor: COLORS.lightGray,
+    backgroundColor: '#2A2A2A',
     paddingVertical: 8,
     paddingHorizontal: 15,
     borderRadius: 20,
@@ -240,7 +388,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   buttonText: {
-    color: COLORS.white,
+    color: '#FFFFFF',
   },
   section: {
     padding: 20,
@@ -253,15 +401,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 15,
   },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
   seeAllText: {
-    color: COLORS.primary,
+    color: '#1DB954',
   },
   collectionCard: {
     flexDirection: 'row',
     marginBottom: 15,
     borderRadius: 8,
     overflow: 'hidden',
-    backgroundColor: 'rgba(150, 150, 150, 0.1)',
+    backgroundColor: '#1E1E1E',
   },
   collectionCover: {
     width: 80,
@@ -272,21 +425,27 @@ const styles = StyleSheet.create({
     padding: 10,
     justifyContent: 'center',
   },
+  collectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 2,
+  },
   collectionDescription: {
-    color: COLORS.gray,
+    color: '#B3B3B3',
     fontSize: 12,
     marginVertical: 4,
   },
   itemCount: {
     fontSize: 12,
-    color: COLORS.gray,
+    color: '#B3B3B3',
   },
   createButton: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   createButtonText: {
-    color: COLORS.primary,
+    color: '#1DB954',
     marginLeft: 5,
   },
   recentClipsContainer: {
@@ -301,11 +460,16 @@ const styles = StyleSheet.create({
     height: 150,
     borderRadius: 8,
     marginBottom: 5,
+    backgroundColor: '#1E1E1E',
   },
   clipTitle: {
     fontSize: 12,
+    color: '#FFFFFF',
   },
-  loader: {
+  emptyText: {
+    color: '#B3B3B3',
+    fontStyle: 'italic',
+    textAlign: 'center',
     marginVertical: 20,
-  },
+  }
 });
