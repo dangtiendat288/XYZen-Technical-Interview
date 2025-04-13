@@ -103,10 +103,10 @@ export function ProfileComponent({ isOverlay = false, onClose, userId: profileUs
   const { userId: routeUserId } = useLocalSearchParams<{ userId: string }>();
   
   // Determine which userId to use - prop takes precedence over route
-  const userId = profileUserId || routeUserId;
+  const targetUserId = profileUserId || routeUserId || user?.uid;
   
   // Determine if we're viewing the current user's profile or someone else's
-  const isCurrentUser = !userId || userId === user?.uid;
+  const isCurrentUser = targetUserId === user?.uid;
   
   const [profileData, setProfileData] = useState<UserProfileData | null>(null);
   const [collections, setCollections] = useState<CollectionData[]>([]);
@@ -127,34 +127,64 @@ export function ProfileComponent({ isOverlay = false, onClose, userId: profileUs
   const videoRefs = useRef<{[key: string]: Video | null}>({}).current;
 
   // Fetch user profile data
-  const fetchUserProfile = async () => {
-    if (!user?.uid) return;
+  const fetchUserProfile = useCallback(async () => {
+    if (!targetUserId) return;
     
     try {
-      // User profile is already fetched through the AuthContext
-      // Just format the data
-      setProfileData({
-        displayName: userProfile?.displayName || user?.email?.split('@')[0] || 'Artist Name',
-        username: userProfile?.username || user?.email?.split('@')[0] || 'username',
-        bio: userProfile?.bio || 'Music producer & artist based in Phoenix.',
-        photoURL: userProfile?.photoURL || 'https://www.comfortzone.com/-/media/project/oneweb/comfortzone/images/blog/how-can-i-soothe-and-calm-my-cat.jpeg?h=717&iar=0&w=1000&hash=4B47BC0AD485430E429977C30A7A37DF',
-        followersCount: userProfile?.followersCount || 0,
-        followingCount: userProfile?.followingCount || 0,
-        clipCount: 0, // Will be updated when we fetch clips
-      });
+      // If viewing current user, use data from AuthContext
+      if (isCurrentUser && userProfile) {
+        setProfileData({
+          displayName: userProfile?.displayName || user?.email?.split('@')[0] || 'Artist Name',
+          username: userProfile?.username || user?.email?.split('@')[0] || 'username',
+          bio: userProfile?.bio || 'Music producer & artist based in Phoenix.',
+          photoURL: userProfile?.photoURL || 'https://www.comfortzone.com/-/media/project/oneweb/comfortzone/images/blog/how-can-i-soothe-and-calm-my-cat.jpeg?h=717&iar=0&w=1000&hash=4B47BC0AD485430E429977C30A7A37DF',
+          followersCount: userProfile?.followersCount || 0,
+          followingCount: userProfile?.followingCount || 0,
+          clipCount: 0, // Will be updated when we fetch clips
+        });
+      } else {
+        // If viewing another user, fetch their profile from Firestore
+        const userDocRef = doc(db, 'users', targetUserId);
+        const userDoc = await getDoc(userDocRef);
+        
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          setProfileData({
+            displayName: userData?.displayName || 'Artist Name',
+            username: userData?.username || 'username',
+            bio: userData?.bio || 'Music producer & artist.',
+            photoURL: userData?.photoURL || 'https://www.comfortzone.com/-/media/project/oneweb/comfortzone/images/blog/how-can-i-soothe-and-calm-my-cat.jpeg?h=717&iar=0&w=1000&hash=4B47BC0AD485430E429977C30A7A37DF',
+            followersCount: userData?.followersCount || 0,
+            followingCount: userData?.followingCount || 0,
+            clipCount: 0, // Will be updated when we fetch clips
+          });
+        } else {
+          console.log('No user document found for ID:', targetUserId);
+          // Set default data if user not found
+          setProfileData({
+            displayName: 'Unknown Artist',
+            username: 'unknown',
+            bio: 'No bio available.',
+            photoURL: 'https://www.comfortzone.com/-/media/project/oneweb/comfortzone/images/blog/how-can-i-soothe-and-calm-my-cat.jpeg?h=717&iar=0&w=1000&hash=4B47BC0AD485430E429977C30A7A37DF',
+            followersCount: 0,
+            followingCount: 0,
+            clipCount: 0,
+          });
+        }
+      }
     } catch (error) {
       console.error('Error fetching user profile:', error);
     }
-  };
+  }, [targetUserId, isCurrentUser, userProfile, user]);
 
   // Set up real-time listener for user clips
   const setupClipsListener = useCallback(() => {
-    if (!user?.uid) return null;
+    if (!targetUserId) return null;
     
     const postsRef = collection(db, 'posts');
     const q = query(
       postsRef, 
-      where('userId', '==', user.uid),
+      where('userId', '==', targetUserId),
       orderBy('timestamp', 'desc')
     );
     
@@ -189,9 +219,9 @@ export function ProfileComponent({ isOverlay = false, onClose, userId: profileUs
           likes: data.likes || 0,
           comments: data.comments || 0,
           shares: data.shares || 0,
-          artist: userProfile?.displayName || user.email?.split('@')[0] || 'Unknown Artist',
-          username: userProfile?.username ? `@${userProfile.username}` : '@user',
-          isVerified: userProfile?.isVerified || false
+          artist: profileData?.displayName || 'Unknown Artist',
+          username: profileData?.username ? `@${profileData.username}` : '@user',
+          isVerified: false // Default to false unless we know otherwise
         };
         
         // Initialize animation for this clip if it doesn't exist
@@ -224,16 +254,16 @@ export function ProfileComponent({ isOverlay = false, onClose, userId: profileUs
     }, (error) => {
       console.error("Error setting up clips listener:", error);
     });
-  }, [user?.uid, userProfile]);
+  }, [targetUserId]);
 
   // Set up real-time listener for user collections
   const setupCollectionsListener = useCallback(() => {
-    if (!user?.uid) return null;
+    if (!targetUserId) return null;
     
     const postsRef = collection(db, 'posts');
     const q = query(
       postsRef, 
-      where('userId', '==', user.uid),
+      where('userId', '==', targetUserId),
       orderBy('timestamp', 'desc')
     );
     
@@ -278,12 +308,10 @@ export function ProfileComponent({ isOverlay = false, onClose, userId: profileUs
     }, (error) => {
       console.error("Error setting up collections listener:", error);
     });
-  }, [user?.uid]);
+  }, [targetUserId]);
 
   // Load all data on component mount
   useEffect(() => {
-    if (!user) return;
-    
     // Initial loading state
     setLoading(true);
     
@@ -311,7 +339,7 @@ export function ProfileComponent({ isOverlay = false, onClose, userId: profileUs
         videoRefs[id]?.stopAsync();
       });
     };
-  }, [user, setupClipsListener, setupCollectionsListener]);
+  }, [fetchUserProfile, setupClipsListener, setupCollectionsListener]);
 
   const navigateToCollection = (collectionId: string) => {
     router.push(`/collections/${collectionId}`);
@@ -527,10 +555,18 @@ export function ProfileComponent({ isOverlay = false, onClose, userId: profileUs
           </View>
           
           <View style={styles.actionButtons}>
-            <TouchableOpacity style={styles.editButton}>
-              <Text style={styles.buttonText}>Edit Profile</Text>
-            </TouchableOpacity>
-            {isCurrentUser && <SignOutButton />}
+            {isCurrentUser ? (
+              <>
+                <TouchableOpacity style={styles.editButton}>
+                  <Text style={styles.buttonText}>Edit Profile</Text>
+                </TouchableOpacity>
+                <SignOutButton />
+              </>
+            ) : (
+              <TouchableOpacity style={[styles.editButton, styles.followButton]}>
+                <Text style={styles.buttonText}>Follow</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -788,5 +824,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  followButton: {
+    backgroundColor: '#1DB954',
+    flex: 1,
   },
 });
