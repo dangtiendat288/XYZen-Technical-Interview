@@ -37,15 +37,16 @@ service firebase.storage {
     }
     
     // Rules for clip thumbnails
-    match /thumbnails/{clipId} {
+    match /thumbnails/{userId}/{fileName} {
       // Anyone can view thumbnails
       allow read: if true;
       
       // Only authenticated users can create thumbnails with constraints:
-      // - Must be authenticated
+      // - Must be authenticated with matching userId
       // - File must be less than 2MB
       // - Content type must be image
-      allow write: if request.auth != null
+      allow write: if request.auth != null 
+                    && request.auth.uid == userId
                     && request.resource.size < 2 * 1024 * 1024
                     && request.resource.contentType.matches('image/.*');
     }

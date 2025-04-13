@@ -2,45 +2,58 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper function to check if user is authenticated
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-    
-    // Helper function to check if user is accessing their own document
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-    
-    // Users collection rules
-    match /users/{userId} {
-      // Allow reading public profile data for all authenticated users
-      allow read: if isAuthenticated();
-      
-      // Allow users to modify only their own profile
-      allow write: if isOwner(userId);
-      
-      // Optional: nested collections within a user's data
-      match /privateData/{document=**} {
-        allow read, write: if isOwner(userId);
-      }
-    }
-    
-    // Add rules for other collections as needed
-    // For example, posts collection
-    match /posts/{postId} {
-      // Anyone can read posts
-      allow read: if isAuthenticated();
-      
-      // Only post owner can update or delete
-      allow create: if isAuthenticated();
-      allow update, delete: if isAuthenticated() && 
-                            request.auth.uid == resource.data.authorId;
-    }
-    
-    // Default deny
+    // Default deny all
     match /{document=**} {
       allow read, write: if false;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      // Users can read/write their own documents
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      // Everyone can read basic user profiles
+      allow read: if request.auth != null;
+    }
+
+    // Posts collection
+    match /posts/{postId} {
+      // Authenticated users can read all posts
+      allow read: if request.auth != null;
+      
+      // Users can create posts with their userId
+      allow create: if request.auth != null && 
+                     request.resource.data.userId == request.auth.uid;
+      
+      // Users can update/delete only their own posts
+      allow update, delete: if request.auth != null && 
+                             resource.data.userId == request.auth.uid;
+    }
+    
+    // Collections (for organizing posts)
+    match /collections/{collectionId} {
+      // Authenticated users can read all collections
+      allow read: if request.auth != null;
+      
+      // User can create collections
+      allow create: if request.auth != null;
+      
+      // Users can only update/delete collections they created
+      allow update, delete: if request.auth != null && 
+                            resource.data.createdBy == request.auth.uid;
+    }
+    
+    // Comments
+    match /comments/{commentId} {
+      // Authenticated users can read all comments
+      allow read: if request.auth != null;
+      
+      // Users can create comments with their userId
+      allow create: if request.auth != null && 
+                     request.resource.data.userId == request.auth.uid;
+      
+      // Users can only update/delete their own comments
+      allow update, delete: if request.auth != null && 
+                             resource.data.userId == request.auth.uid;
     }
   }
 }
