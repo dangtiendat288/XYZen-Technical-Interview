@@ -1,6 +1,7 @@
 import { Tabs } from 'expo-router';
 import { FontAwesome } from '@expo/vector-icons';
 import { useColorScheme } from 'react-native';
+import { DarkTheme, DefaultTheme } from '@react-navigation/native';
 
 /**
  * You can explore the built-in icon families and icons on the web at https://icons.expo.fyi/
@@ -14,36 +15,43 @@ function TabBarIcon(props: {
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const theme = colorScheme === 'dark' ? DarkTheme : DefaultTheme;
+  
+  // Spotify green color
+  const spotifyGreen = '#1DB954';
 
   return (
     <Tabs
       screenOptions={{
-      tabBarActiveTintColor: colorScheme === 'dark' ? '#fff' : '#007AFF',
-      tabBarStyle: {
-        height: 60,
-      },
-      headerShown: false,
+        tabBarActiveTintColor: spotifyGreen, // Changed to Spotify green
+        tabBarInactiveTintColor: colorScheme === 'dark' ? '#fff' : '#121212',
+        tabBarStyle: {
+          height: 60,
+          backgroundColor: theme.colors.card,
+          borderTopColor: theme.colors.border,
+        },
+        headerShown: false,
       }}>
       <Tabs.Screen
-      name="index"
-      options={{
-        title: 'Home',
-        tabBarIcon: ({ color }) => <TabBarIcon name="home" color={color} />,
-      }}
+        name="index"
+        options={{
+          title: 'Home',
+          tabBarIcon: ({ color }) => <TabBarIcon name="home" color={color} />,
+        }}
       />      
       <Tabs.Screen
-      name="upload"
-      options={{
-        title: 'Upload',
-        tabBarIcon: ({ color }) => <TabBarIcon name="upload" color={color} />,
-      }}
+        name="upload"
+        options={{
+          title: 'Upload',
+          tabBarIcon: ({ color }) => <TabBarIcon name="upload" color={color} />,
+        }}
       />
       <Tabs.Screen
-      name="profile"
-      options={{
-        title: 'Profile',
-        tabBarIcon: ({ color }) => <TabBarIcon name="user" color={color} />,
-      }}
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ color }) => <TabBarIcon name="user" color={color} />,
+        }}
       />
     </Tabs>
   );
