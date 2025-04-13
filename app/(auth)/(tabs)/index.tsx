@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import VideoPlayer from '@/components/VideoPlayer';
 import { Video, AVPlaybackStatus } from 'expo-av';
+import { getLikedPosts } from '@/services/likeService';
 
 // Firebase imports
 import { collection, query, where, orderBy, limit, getDocs, onSnapshot } from 'firebase/firestore';
@@ -71,6 +72,31 @@ export default function FeedScreen(): React.ReactElement {
   
   // Create a map of like animations for each item
   const likeAnimations = useRef<AnimationMap>({}).current;
+
+  // Track liked status of posts
+  const [likedStatus, setLikedStatus] = useState<Record<string, boolean>>({});
+
+  // Load liked status for posts - only use this to initialize the UI
+  useEffect(() => {
+    const loadLikedStatus = async () => {
+      if (!user) return;
+      
+      try {
+        const likedPosts = await getLikedPosts();
+        const newLikedStatus: Record<string, boolean> = {};
+        
+        feedData.forEach(post => {
+          newLikedStatus[post.id] = likedPosts.includes(post.id);
+        });
+        
+        setLikedStatus(newLikedStatus);
+      } catch (error) {
+        console.error("Error loading liked status:", error);
+      }
+    };
+    
+    loadLikedStatus();
+  }, [feedData, user]);
 
   // Fetch admin posts from Firestore
   useEffect(() => {
@@ -209,26 +235,21 @@ export default function FeedScreen(): React.ReactElement {
     itemVisiblePercentThreshold: 50
   };
 
+  // Update the local liked status when VideoPlayer triggers a like (for UI consistency only)
+  const handleLikeChange = (postId: string, isLiked: boolean) => {
+    // Update the liked status map
+    setLikedStatus(prev => ({
+      ...prev,
+      [postId]: isLiked
+    }));
+  };
+
   // Render individual video card using the shared VideoPlayer component
   const renderVideoCard = useCallback(({ item, index }: ListRenderItemInfo<FeedItem>) => {
     // Get the pre-created animation value for this item
     const likeAnimation = likeAnimations[item.id];
     const isPlaying = index === activeIndex;
-    
-    const handleLikePress = () => {
-      Animated.sequence([
-        Animated.timing(likeAnimation, {
-          toValue: 1.3,
-          duration: 150,
-          useNativeDriver: true,
-        }),
-        Animated.timing(likeAnimation, {
-          toValue: 1,
-          duration: 150,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    };
+    const isLiked = likedStatus[item.id] || false;
     
     const handlePlayPause = () => {
       const video = videoRefs[item.id];
@@ -262,18 +283,19 @@ export default function FeedScreen(): React.ReactElement {
         artist={item.artist}
         username={item.username}
         description={item.description}
-        title={item.songTitle}
+        title={item.songTitle || item.title}
         likes={item.likes}
         comments={item.comments}
         shares={item.shares}
         isVerified={item.isVerified}
+        isLiked={isLiked}
         onPlayPause={handlePlayPause}
-        onLikePress={handleLikePress}
+        onLikePress={(newStatus) => handleLikeChange(item.id, newStatus)}
         containerHeight={height - tabBarHeight}
         showBackButton={false}
       />
     );
-  }, [activeIndex, likeAnimations, playingVideos, tabBarHeight, videoRefs]);
+  }, [activeIndex, likeAnimations, playingVideos, tabBarHeight, videoRefs, likedStatus]);
 
   // If loading, show loading indicator
   if (loading) {

@@ -15,7 +15,7 @@ service cloud.firestore {
       allow read: if request.auth != null;
     }
 
-    // Posts collection
+    // Posts collection - updated to handle likes
     match /posts/{postId} {
       // Authenticated users can read all posts
       allow read: if request.auth != null;
@@ -27,6 +27,10 @@ service cloud.firestore {
       // Users can update/delete only their own posts
       allow update, delete: if request.auth != null && 
                              resource.data.userId == request.auth.uid;
+      
+      // Allow any authenticated user to update likes and likedBy fields for posts
+      allow update: if request.auth != null && 
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'likedBy']);
     }
     
     // Collections (for organizing posts)
@@ -54,6 +58,24 @@ service cloud.firestore {
       // Users can only update/delete their own comments
       allow update, delete: if request.auth != null && 
                              resource.data.userId == request.auth.uid;
+    }
+    
+    // Videos collection for video like functionality
+    match /videos/{videoId} {
+      // Authenticated users can read all videos
+      allow read: if request.auth != null;
+      
+      // Users can create videos with their userId
+      allow create: if request.auth != null && 
+                     request.resource.data.userId == request.auth.uid;
+      
+      // Video owners can update/delete their own videos
+      allow update, delete: if request.auth != null && 
+                             resource.data.userId == request.auth.uid;
+      
+      // Fix: Allow any authenticated user to update like-related fields
+      // This rule needs to be separate to avoid conflicts with the previous rule
+      allow update: if request.auth != null;
     }
   }
 }

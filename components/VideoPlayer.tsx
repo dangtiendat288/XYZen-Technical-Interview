@@ -8,11 +8,12 @@ import {
   Dimensions, 
   Animated 
 } from 'react-native';
-import { Video, AVPlaybackStatus } from 'expo-av';
+import { Video, AVPlaybackStatus, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS } from '@/constants/theme';
 import CommentModal from './CommentModal';
+import { togglePostLike } from '@/services/likeService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -31,8 +32,9 @@ interface VideoPlayerProps {
   comments: number;
   shares: number;
   isVerified?: boolean;
+  isLiked?: boolean;
   onPlayPause?: () => void;
-  onLikePress?: () => void;
+  onLikePress?: (newStatus: boolean) => void;
   containerHeight?: number;
   showBackButton?: boolean;
   onBackPress?: () => void;
@@ -53,6 +55,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   comments,
   shares,
   isVerified = false,
+  isLiked = false,
   onPlayPause,
   onLikePress,
   containerHeight = height,
@@ -64,11 +67,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [localIsPlaying, setLocalIsPlaying] = useState<boolean>(isPlaying);
   const [commentModalVisible, setCommentModalVisible] = useState<boolean>(false);
   const [localCommentCount, setLocalCommentCount] = useState<number>(comments);
+  const [localLikes, setLocalLikes] = useState<number>(likes);
+  const [localIsLiked, setLocalIsLiked] = useState<boolean>(isLiked);
 
   // Update local state when prop changes
   React.useEffect(() => {
     setLocalIsPlaying(isPlaying);
-  }, [isPlaying]);
+    setLocalIsLiked(isLiked);
+    setLocalLikes(likes);
+  }, [isPlaying, isLiked, likes]);
 
   // Update local comment count when props change
   React.useEffect(() => {
@@ -126,6 +133,56 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setCommentModalVisible(true);
   };
 
+  // Handle like button press - now using the likeService
+  const handleLikePress = async () => {
+    // Start animation regardless of state
+    if (likeAnimation) {
+      Animated.sequence([
+        Animated.timing(likeAnimation, {
+          toValue: 1.2,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(likeAnimation, {
+          toValue: 1,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+
+    // Update UI immediately for responsive feel
+    const newLikeStatus = !localIsLiked;
+    setLocalIsLiked(newLikeStatus);
+    setLocalLikes(prev => newLikeStatus ? prev + 1 : prev - 1);
+
+    // Call the likeService to handle the backend update
+    try {
+      const result = await togglePostLike(id, localIsLiked);
+      
+      if (!result.success) {
+        // Revert UI if operation failed
+        setLocalIsLiked(localIsLiked);
+        setLocalLikes(prev => newLikeStatus ? prev - 1 : prev + 1);
+        console.log("Like operation failed");
+        return;
+      }
+      
+      // Call the parent callback if provided
+      if (onLikePress) {
+        onLikePress(result.newLikeStatus);
+      }
+      
+      console.log(`Successfully ${result.newLikeStatus ? 'liked' : 'unliked'} post`);
+      
+    } catch (error) {
+      console.error("Error in like operation:", error);
+      // Revert UI on error
+      setLocalIsLiked(localIsLiked);
+      setLocalLikes(prev => newLikeStatus ? prev - 1 : prev + 1);
+    }
+  };
+
   return (
     <View style={[styles.container, { height: containerHeight }]}>
       {/* Video or Thumbnail */}
@@ -134,7 +191,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           ref={videoRef}
           source={{ uri: videoUri }}
           style={styles.videoBackground}
-          resizeMode="cover"
+          resizeMode={ResizeMode.COVER}
           isLooping
           shouldPlay={localIsPlaying}
           isMuted={false}
@@ -193,11 +250,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       {/* Interaction controls - right side */}
       <View style={styles.interactionBar}>
-        <TouchableOpacity style={styles.interactionButton} onPress={onLikePress}>
+        <TouchableOpacity style={styles.interactionButton} onPress={handleLikePress}>
           <Animated.View style={{ transform: [{ scale: likeAnimation }] }}>
-            <Ionicons name="heart" size={28} color="#1DB954" />
+            <Ionicons 
+              name={localIsLiked ? "heart" : "heart-outline"} 
+              size={28} 
+              color={localIsLiked ? "#1DB954" : "#fff"} 
+            />
           </Animated.View>
-          <Text style={styles.interactionText}>{formatNumber(likes)}</Text>
+          <Text style={styles.interactionText}>{formatNumber(localLikes)}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity 
