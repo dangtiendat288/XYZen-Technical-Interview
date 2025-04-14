@@ -5,7 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Video, AVPlaybackStatus } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, UploadTask, UploadTaskSnapshot } from 'firebase/storage';
-import { getFirestore, collection as firestoreCollection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { getFirestore, collection as firestoreCollection, addDoc, serverTimestamp, query, where, getDocs, doc, setDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { router } from 'expo-router';
 import * as VideoThumbnails from 'expo-video-thumbnails';
@@ -31,10 +31,45 @@ export default function UploadScreen(): JSX.Element {
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [selectedThumbnail, setSelectedThumbnail] = useState<string | null>(null);
   const [generatingThumbnails, setGeneratingThumbnails] = useState<boolean>(false);
+  const [collections, setCollections] = useState<string[]>(['New Collection...']);
+  const [fetchingCollections, setFetchingCollections] = useState<boolean>(true);
   const videoRef = useRef<Video | null>(null);
   
-  // Hardcoded collections for now - in real app, these would be fetched from Firebase
-  const collections: string[] = ['New Collection...', 'Unreleased Previews', 'Studio Sessions', 'Fan Collaborations'];
+  // Fetch user's collections from Firebase
+  useEffect(() => {
+    const fetchUserCollections = async () => {
+      try {
+        const auth = getAuth();
+        if (!auth.currentUser) return;
+        
+        const db = getFirestore();
+        const collectionsQuery = query(
+          firestoreCollection(db, 'collections'),
+          where('createdBy', '==', auth.currentUser.uid)
+        );
+        
+        const querySnapshot = await getDocs(collectionsQuery);
+        const userCollections = ['New Collection...'];
+        
+        querySnapshot.forEach((doc) => {
+          const collectionData = doc.data();
+          if (collectionData.title) {
+            userCollections.push(collectionData.title);
+          }
+        });
+        
+        setCollections(userCollections);
+      } catch (error) {
+        console.error('Error fetching collections:', error);
+        // If there's an error, at least show the "New Collection..." option
+        setCollections(['New Collection...']);
+      } finally {
+        setFetchingCollections(false);
+      }
+    };
+    
+    fetchUserCollections();
+  }, []);
 
   // Generate thumbnails when a video is selected
   useEffect(() => {
@@ -158,7 +193,7 @@ export default function UploadScreen(): JSX.Element {
         'state_changed',
         (snapshot: UploadTaskSnapshot) => {
           // Track upload progress if needed
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
           console.log(`Video upload is ${progress}% done`);
         },
         (error: Error) => {
@@ -185,7 +220,7 @@ export default function UploadScreen(): JSX.Element {
             thumbnailUploadTask.on(
               'state_changed',
               (snapshot: UploadTaskSnapshot) => {
-                const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
                 console.log(`Thumbnail upload is ${progress}% done`);
               },
               (error: Error) => {
@@ -197,8 +232,42 @@ export default function UploadScreen(): JSX.Element {
                 // Thumbnail upload completed successfully
                 const thumbnailDownloadURL = await getDownloadURL(thumbnailUploadTask.snapshot.ref);
                 
-                // Save post data to Firestore
                 const db = getFirestore();
+                
+                // Check if it's a new collection and save it if needed
+                if (collection === 'New Collection...' && customCollection.trim()) {
+                  // Create a new collection document
+                  const collectionRef = firestoreCollection(db, 'collections');
+                  await addDoc(collectionRef, {
+                    title: customCollection.trim(),
+                    description: '',
+                    coverImage: 'https://via.placeholder.com/300/1DB954/FFFFFF?text=Collection',
+                    createdBy: auth.currentUser.uid,
+                    timestamp: serverTimestamp(),
+                    itemCount: 1 // Starting with this new item
+                  });
+                } else if (collection !== 'New Collection...') {
+                  // Increment the itemCount of the existing collection
+                  const collectionsRef = firestoreCollection(db, 'collections');
+                  const q = query(collectionsRef, 
+                    where('createdBy', '==', auth.currentUser.uid),
+                    where('title', '==', collection)
+                  );
+                  
+                  const querySnapshot = await getDocs(q);
+                  if (!querySnapshot.empty) {
+                    const collectionDoc = querySnapshot.docs[0];
+                    const collectionData = collectionDoc.data();
+                    
+                    // Update itemCount
+                    await setDoc(doc(db, 'collections', collectionDoc.id), {
+                      ...collectionData,
+                      itemCount: (collectionData.itemCount || 0) + 1
+                    });
+                  }
+                }
+                
+                // Save post data to Firestore
                 const postsCollectionRef = firestoreCollection(db, 'posts');
                 
                 const postData = {
@@ -229,7 +298,7 @@ export default function UploadScreen(): JSX.Element {
                 Alert.alert(
                   'Upload Success', 
                   'Your clip has been uploaded successfully!',
-                  [{ text: 'OK', onPress: () => router.push('/feed') }]
+                  [{ text: 'OK', onPress: () => router.replace('/(auth)/(tabs)/profile') }]
                 );
               }
             );
@@ -344,27 +413,31 @@ export default function UploadScreen(): JSX.Element {
           />
           
           <Text style={styles.label}>Collection</Text>
-          <View style={styles.collectionsContainer}>
-            {collections.map((item, index) => (
-              <TouchableOpacity
-                key={index}
-                style={[
-                  styles.collectionButton,
-                  collection === item && styles.selectedCollectionButton
-                ]}
-                onPress={() => setCollection(item)}
-              >
-                <Text 
+          {fetchingCollections ? (
+            <ActivityIndicator color="#1DB954" size="small" style={{marginVertical: 10}} />
+          ) : (
+            <View style={styles.collectionsContainer}>
+              {collections.map((item, index) => (
+                <TouchableOpacity
+                  key={index}
                   style={[
-                    styles.collectionButtonText,
-                    collection === item && styles.selectedCollectionButtonText
+                    styles.collectionButton,
+                    collection === item && styles.selectedCollectionButton
                   ]}
+                  onPress={() => setCollection(item)}
                 >
-                  {item}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+                  <Text 
+                    style={[
+                      styles.collectionButtonText,
+                      collection === item && styles.selectedCollectionButtonText
+                    ]}
+                  >
+                    {item}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
           
           {collection === 'New Collection...' && (
             <TextInput
