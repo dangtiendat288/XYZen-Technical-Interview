@@ -19,7 +19,19 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import VideoPlayer from '@/components/VideoPlayer';
-import { getFirestore, collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import AddClipsModal from '@/components/collection/AddClipsModal';
+import { 
+  getFirestore, 
+  collection, 
+  query, 
+  where, 
+  getDocs, 
+  doc, 
+  getDoc, 
+  updateDoc,
+  increment,
+  runTransaction
+} from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useAuth } from '@/context/AuthContext';
 import { Colors } from '@/constants/Colors';
@@ -47,6 +59,7 @@ interface PostData {
   timestamp: any;
   likes: number;
   comments: number;
+  collection?: string;
 }
 
 export default function CollectionScreen() {
@@ -61,6 +74,12 @@ export default function CollectionScreen() {
   const [showFullView, setShowFullView] = useState(false);
   const [playingVideos, setPlayingVideos] = useState<{[key: string]: boolean}>({});
   const videoRefs = useRef<{[key: string]: Video | null}>({}).current;
+  
+  // For adding clips to collection
+  const [showAddClipModal, setShowAddClipModal] = useState(false);
+  const [availableClips, setAvailableClips] = useState<PostData[]>([]);
+  const [selectedClips, setSelectedClips] = useState<string[]>([]);
+  const [addingClips, setAddingClips] = useState(false);
 
   // Animation for post selection
   const scale = useSharedValue(1);
@@ -119,6 +138,7 @@ export default function CollectionScreen() {
             timestamp: data.timestamp || null,
             likes: data.likes || 0,
             comments: data.comments || 0,
+            collection: data.collection,
           };
         });
         
@@ -139,6 +159,130 @@ export default function CollectionScreen() {
 
     fetchCollectionData();
   }, [id, router]);
+
+  // Fetch available clips for the add clip modal
+  const fetchAvailableClips = async () => {
+    if (!user?.uid || !collectionData?.title) return;
+    
+    try {
+      setAddingClips(true);
+      
+      // Get user's posts that aren't in this collection
+      const postsRef = collection(db, 'posts');
+      const q = query(
+        postsRef,
+        where('userId', '==', user.uid),
+      );
+      
+      const querySnapshot = await getDocs(q);
+      const allUserPosts = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          title: data.title || 'Untitled',
+          description: data.description || '',
+          mediaUrl: data.mediaUrl || '',
+          thumbnailUrl: data.thumbnailUrl || 'https://via.placeholder.com/300',
+          userId: data.userId || '',
+          timestamp: data.timestamp || null,
+          likes: data.likes || 0,
+          comments: data.comments || 0,
+          collection: data.collection,
+        };
+      });
+      
+      // Filter out posts that are already in this collection
+      const availablePosts = allUserPosts.filter(
+        post => post.collection !== collectionData.title
+      );
+      
+      setAvailableClips(availablePosts);
+      setSelectedClips([]);
+    } catch (error) {
+      console.error('Error fetching available clips:', error);
+    } finally {
+      setAddingClips(false);
+    }
+  };
+
+  // Toggle clip selection
+  const handleToggleClipSelection = (clipId: string) => {
+    setSelectedClips(prev => {
+      if (prev.includes(clipId)) {
+        return prev.filter(id => id !== clipId);
+      } else {
+        return [...prev, clipId];
+      }
+    });
+  };
+
+  // Add selected clips to collection
+  const handleAddClipsToCollection = async () => {
+    if (selectedClips.length === 0 || !collectionData?.title || !id) return;
+    
+    try {
+      setAddingClips(true);
+      
+      // Update each post's collection field
+      for (const clipId of selectedClips) {
+        const postRef = doc(db, 'posts', clipId);
+        await updateDoc(postRef, {
+          collection: collectionData.title
+        });
+      }
+      
+      // Update collection's item count
+      const collectionRef = doc(db, 'collections', id as string);
+      await updateDoc(collectionRef, {
+        itemCount: increment(selectedClips.length)
+      });
+      
+      // Refresh the posts list
+      const postsRef = collection(db, 'posts');
+      const q = query(
+        postsRef,
+        where('collection', '==', collectionData.title)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      const postsData = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          title: data.title || 'Untitled',
+          description: data.description || '',
+          mediaUrl: data.mediaUrl || '',
+          thumbnailUrl: data.thumbnailUrl || 'https://via.placeholder.com/300',
+          userId: data.userId || '',
+          timestamp: data.timestamp || null,
+          likes: data.likes || 0,
+          comments: data.comments || 0,
+          collection: data.collection,
+        };
+      });
+      
+      setPosts(postsData);
+      
+      // Update local collection data
+      setCollectionData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          itemCount: prev.itemCount + selectedClips.length
+        };
+      });
+      
+      // Close the modal
+      setShowAddClipModal(false);
+    } catch (error) {
+      console.error('Error adding clips to collection:', error);
+    } finally {
+      setAddingClips(false);
+    }
+  };
+
+  // Check if current user is the collection owner
+  const isCollectionOwner = user?.uid === collectionData?.createdBy;
 
   // Handle post selection for full-view mode
   const handlePostPress = (post: PostData, index: number) => {
@@ -327,7 +471,7 @@ export default function CollectionScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Colors.primary} />
+        <ActivityIndicator size="large" color={Colors.light.tint} />
         <Text style={styles.loadingText}>Loading collection...</Text>
       </SafeAreaView>
     );
@@ -345,7 +489,17 @@ export default function CollectionScreen() {
         <Text style={styles.headerTitle} numberOfLines={1}>
           {collectionData?.title || 'Collection'}
         </Text>
-        <View style={styles.headerRight} />
+        {isCollectionOwner && (
+          <TouchableOpacity 
+            style={styles.addButton}
+            onPress={() => {
+              fetchAvailableClips();
+              setShowAddClipModal(true);
+            }}
+          >
+            <Ionicons name="add-circle-outline" size={28} color="#1DB954" />
+          </TouchableOpacity>
+        )}
       </View>
       
       {/* Collection Info */}
@@ -376,12 +530,27 @@ export default function CollectionScreen() {
       ) : (
         <View style={styles.emptyContainer}>
           <Ionicons name="musical-notes" size={64} color="#666" />
-          <Text style={styles.emptyText}>No clips in this collection yet</Text>
+          <Text style={styles.emptyText}>
+            No clips in this collection yet
+            {isCollectionOwner && ' - tap the + button to add clips'}
+          </Text>
         </View>
       )}
       
       {/* Full Post View Modal */}
       {renderFullPostView()}
+      
+      {/* Add Clip Modal */}
+      <AddClipsModal
+        visible={showAddClipModal}
+        collectionTitle={collectionData?.title || ''}
+        availableClips={availableClips}
+        selectedClips={selectedClips}
+        loading={addingClips}
+        onClose={() => setShowAddClipModal(false)}
+        onAddClips={handleAddClipsToCollection}
+        onToggleClipSelection={handleToggleClipSelection}
+      />
     </SafeAreaView>
   );
 }
@@ -562,5 +731,13 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
+  },
+  // Styles for the add button
+  addButton: {
+    padding: 5,
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
