@@ -26,9 +26,11 @@ export default function TabLayout() {
         tabBarActiveTintColor: spotifyGreen, // Changed to Spotify green
         tabBarInactiveTintColor: colorScheme === 'dark' ? '#fff' : '#121212',
         tabBarStyle: {
-          height: 60,
+          height: 85, // Increased from 60 to 70
           backgroundColor: theme.colors.card,
           borderTopColor: theme.colors.border,
+          paddingTop: 5, // Adding padding to improve touchability
+          paddingBottom: 10, // Adding padding at the bottom
         },
         headerShown: false,
       }}>
