@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,14 +10,14 @@ import {
   ActivityIndicator,
   Modal,
   Share,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons, FontAwesome } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
-import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import VideoPlayer from '@/components/VideoPlayer';
 import AddClipsModal from '@/components/collection/AddClipsModal';
 import { 
@@ -29,8 +29,7 @@ import {
   doc, 
   getDoc, 
   updateDoc,
-  increment,
-  runTransaction
+  increment
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useAuth } from '@/context/AuthContext';
@@ -74,20 +73,13 @@ export default function CollectionScreen() {
   const [showFullView, setShowFullView] = useState(false);
   const [playingVideos, setPlayingVideos] = useState<{[key: string]: boolean}>({});
   const videoRefs = useRef<{[key: string]: Video | null}>({}).current;
+  const [likeAnimations, setLikeAnimations] = useState<{[key: string]: Animated.Value}>({});
   
   // For adding clips to collection
   const [showAddClipModal, setShowAddClipModal] = useState(false);
   const [availableClips, setAvailableClips] = useState<PostData[]>([]);
   const [selectedClips, setSelectedClips] = useState<string[]>([]);
   const [addingClips, setAddingClips] = useState(false);
-
-  // Animation for post selection
-  const scale = useSharedValue(1);
-  const animatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: scale.value }],
-    };
-  });
 
   // Fetch collection data and posts
   useEffect(() => {
@@ -144,12 +136,17 @@ export default function CollectionScreen() {
         
         setPosts(postsData);
 
-        // Initialize video playback states
+        // Initialize video playback and animation states
         const newPlayingVideos: {[key: string]: boolean} = {};
+        const newLikeAnimations: {[key: string]: Animated.Value} = {};
+        
         postsData.forEach(post => {
           newPlayingVideos[post.id] = false;
+          newLikeAnimations[post.id] = new Animated.Value(1);
         });
+        
         setPlayingVideos(newPlayingVideos);
+        setLikeAnimations(newLikeAnimations);
       } catch (error) {
         console.error('Error fetching collection data:', error);
       } finally {
@@ -304,11 +301,6 @@ export default function CollectionScreen() {
     });
     newPlayingState[post.id] = true;
     setPlayingVideos(newPlayingState);
-    
-    // Animate selection
-    scale.value = withSpring(1.05, { damping: 10 }, () => {
-      scale.value = withSpring(1);
-    });
   };
   
   // Play/pause toggle for full view
@@ -326,6 +318,25 @@ export default function CollectionScreen() {
         ...playingVideos,
         [postId]: !playingVideos[postId]
       });
+    }
+  };
+
+  // Handle like animation
+  const handleLikePress = (postId: string) => {
+    const animation = likeAnimations[postId];
+    if (animation) {
+      Animated.sequence([
+        Animated.timing(animation, {
+          toValue: 1.3,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+        Animated.timing(animation, {
+          toValue: 1,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+      ]).start();
     }
   };
 
@@ -423,7 +434,7 @@ export default function CollectionScreen() {
             </TouchableOpacity>
           </View>
           
-          {/* Video */}
+          {/* Video - Fix animation props */}
           <VideoPlayer
             id={selectedPost.id}
             videoUri={selectedPost.mediaUrl}
@@ -446,23 +457,12 @@ export default function CollectionScreen() {
             isVerified={false}
             containerHeight={height}
             onPlayPause={() => handlePlayPause(selectedPost.id)}
-            onLikePress={() => {}}
+            onLikePress={() => handleLikePress(selectedPost.id)}
             onUsernamePress={() => goToUserProfile(selectedPost.userId)}
-            likeAnimation={null}
+            likeAnimation={likeAnimations[selectedPost.id]}
           />
           
-          {/* Navigation dots */}
-          <View style={styles.paginationDots}>
-            {posts.map((_, index) => (
-              <View
-                key={index}
-                style={[
-                  styles.paginationDot,
-                  index === selectedPostIndex && styles.activePaginationDot,
-                ]}
-              />
-            ))}
-          </View>
+          {/* Removed pagination dots */}
         </View>
       </Modal>
     );
