@@ -82,7 +82,7 @@ export default function SignIn() {
         <ThemedText>Don't have an account? </ThemedText>
         <Link href="/sign-up" asChild>
           <TouchableOpacity>
-            <Text style={styles.linkText}>Sign up</Text>
+            <ThemedText style={styles.linkText}>Sign up</ThemedText>
           </TouchableOpacity>
         </Link>
       </View>
@@ -139,6 +139,7 @@ const styles = StyleSheet.create({
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
+    alignItems: 'center',
     marginTop: 20,
   },
   linkText: {
